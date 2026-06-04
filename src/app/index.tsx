@@ -112,7 +112,7 @@ export default function CheckinScreen() {
               <View style={styles.brandDot} />
               <Text style={styles.brand}>footprint</Text>
             </View>
-            <Text style={styles.subtitle}>현장 체크인 · 한국 · 일본 (v1)</Text>
+            <Text style={styles.subtitle}>현장 체크인 · 한국 · 일본 · 태국 (v1)</Text>
           </View>
 
           {backendReady === false && (

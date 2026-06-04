@@ -1,0 +1,9 @@
+[
+  { "id": "th-bangkok",   "regionId": "TH-10", "country": "TH", "name": "Bangkok",   "nameLocal": "방콕",   "position": [100.5018, 13.7563] },
+  { "id": "th-chiangmai", "regionId": "TH-50", "country": "TH", "name": "Chiang Mai", "nameLocal": "치앙마이", "position": [98.9817, 18.7883] },
+  { "id": "th-chiangrai", "regionId": "TH-57", "country": "TH", "name": "Chiang Rai", "nameLocal": "치앙라이", "position": [99.8325, 19.9105] },
+  { "id": "th-phuket",    "regionId": "TH-83", "country": "TH", "name": "Phuket",     "nameLocal": "푸켓",   "position": [98.3381, 7.8804] },
+  { "id": "th-krabi",     "regionId": "TH-81", "country": "TH", "name": "Krabi",      "nameLocal": "끄라비",  "position": [98.9063, 8.0863] },
+  { "id": "th-samui",     "regionId": "TH-84", "country": "TH", "name": "Surat Thani", "nameLocal": "수랏타니", "position": [99.3217, 9.1382] },
+  { "id": "th-korat",     "regionId": "TH-30", "country": "TH", "name": "Nakhon Ratchasima", "nameLocal": "나콘라차시마", "position": [102.0977, 14.9799] }
+]

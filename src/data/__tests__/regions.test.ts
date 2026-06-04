@@ -3,13 +3,14 @@ import { verifyCheckin } from '@/lib/geo';
 import type { Position } from '@/types/domain';
 
 describe('bundled data', () => {
-  it('loads 47 Japanese prefectures and 17 Korean provinces', () => {
+  it('loads admin-1 units for JP (47), KR (17), TH (77)', () => {
     expect(loadRegions('JP')).toHaveLength(47);
     expect(loadRegions('KR')).toHaveLength(17);
+    expect(loadRegions('TH')).toHaveLength(77);
   });
 
-  it('lists KR + JP as available, TH not yet', () => {
-    expect(availableCountries()).toEqual(['KR', 'JP']);
+  it('lists all three v1 countries as available', () => {
+    expect(availableCountries()).toEqual(['KR', 'JP', 'TH']);
   });
 
   it('resolves real Japanese coordinates to prefecture + nearest city', () => {
@@ -42,6 +43,10 @@ describe('resolveCheckin (multi-country)', () => {
     const tokyo = resolveCheckin([139.6917, 35.6895], 20);
     expect(tokyo).toMatchObject({ ok: true, country: 'JP', regionId: 'JP-13' });
     expect(tokyo.city?.id).toBe('jp-tokyo');
+
+    const bangkok = resolveCheckin([100.5018, 13.7563], 20);
+    expect(bangkok).toMatchObject({ ok: true, country: 'TH', regionId: 'TH-10' });
+    expect(bangkok.city?.id).toBe('th-bangkok');
   });
 
   it('returns no-region (country null) outside all bundled countries', () => {

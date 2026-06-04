@@ -36,7 +36,7 @@ export default function MapScreen() {
   );
 
   const filled = Object.keys(visits).length;
-  const unit = country === 'JP' ? '현' : '시·도';
+  const unit = country === 'JP' ? '현' : country === 'TH' ? '주' : '시·도';
 
   return (
     <View style={styles.root}>

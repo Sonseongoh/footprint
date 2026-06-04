@@ -17,7 +17,7 @@ export function loadRegions(country: CountryCode): RegionFeature[] {
     case 'KR':
       return (require('./regions.kr.json') as RegionCollection).features;
     case 'TH':
-      return []; // TODO: add admin-1 GeoJSON for TH
+      return (require('./regions.th.json') as RegionCollection).features;
     default:
       return [];
   }
@@ -30,7 +30,7 @@ export function loadCities(country: CountryCode): CityPoint[] {
     case 'KR':
       return require('./cities.kr.json') as CityPoint[];
     case 'TH':
-      return [];
+      return require('./cities.th.json') as CityPoint[];
     default:
       return [];
   }

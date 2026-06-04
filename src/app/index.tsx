@@ -1,104 +1,333 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+/**
+ * Check-in screen (M1 home). The globe entry replaces this in M2.
+ *
+ * Flow: get GPS → resolveCheckin against every bundled country → show the
+ * matched country / prefecture / nearest city (or a clear error) → record
+ * locally (syncs to Supabase when a backend is configured).
+ */
+import { Image } from 'expo-image';
+import * as Location from 'expo-location';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Palette, Space } from '@/constants/footprint-theme';
+import { loadRegions, resolveCheckin, type ResolvedCheckin } from '@/data';
+import { cityNameKo, regionNameKo } from '@/data/names-ko';
+import { recordCheckin } from '@/lib/checkinService';
+import { pickFromLibrary, takePhoto } from '@/lib/photo';
+import { ensureAnonymousSession } from '@/lib/supabase';
+import { COUNTRIES, type Position } from '@/types/domain';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
+type Phase = 'idle' | 'locating' | 'result' | 'denied' | 'done';
+
+const TEST_POINTS: { label: string; pos: Position }[] = [
+  { label: '서울로 테스트', pos: [126.978, 37.5665] },
+  { label: '도쿄로 테스트', pos: [139.6917, 35.6895] },
+];
+
+export default function CheckinScreen() {
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [result, setResult] = useState<ResolvedCheckin | null>(null);
+  const [coords, setCoords] = useState<{ pos: Position; accuracyM: number | null } | null>(null);
+  const [note, setNote] = useState('');
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [backendReady, setBackendReady] = useState<boolean | null>(null);
+
+  // Deferred auth: try an anonymous session on launch. Without a configured
+  // backend this fails — the verify+local-record demo still works.
+  useEffect(() => {
+    ensureAnonymousSession()
+      .then((id) => {
+        setUserId(id);
+        setBackendReady(true);
+      })
+      .catch(() => setBackendReady(false));
+  }, []);
+
+  function regionDisplayName(country: ResolvedCheckin['country'], regionId: string | null) {
+    if (!country || !regionId) return '';
+    const en =
+      loadRegions(country).find((r) => r.properties.id === regionId)?.properties.name ?? regionId;
+    return regionNameKo(regionId, en);
   }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
+
+  function runResolve(pos: Position, accuracyM: number | null) {
+    setCoords({ pos, accuracyM });
+    setResult(resolveCheckin(pos, accuracyM));
+    setPhase('result');
   }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+
+  async function handleCheckin() {
+    setPhase('locating');
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      setPhase('denied');
+      return;
+    }
+    try {
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      runResolve([loc.coords.longitude, loc.coords.latitude], loc.coords.accuracy ?? null);
+    } catch {
+      setResult({ ok: false, reason: 'no-fix', regionId: null, city: null, country: null });
+      setPhase('result');
+    }
+  }
+
+  async function handleRecord() {
+    if (!result?.ok || !result.country || !coords) return;
+    await recordCheckin({
+      userId: userId ?? 'local-only',
+      regionId: result.regionId!,
+      cityId: result.city?.id ?? null,
+      cityName: result.city?.name ?? null,
+      country: result.country,
+      lat: coords.pos[1],
+      lng: coords.pos[0],
+      accuracyM: coords.accuracyM,
+      note: note.trim() || null,
+      photoUri,
+    });
+    setPhase('done');
+    setNote('');
+    setPhotoUri(null);
+  }
+
+  function reset() {
+    setResult(null);
+    setCoords(null);
+    setNote('');
+    setPhotoUri(null);
+    setPhase('idle');
+  }
+
+  async function addPhoto(source: 'camera' | 'library') {
+    const uri = source === 'camera' ? await takePhoto() : await pickFromLibrary();
+    if (uri) setPhotoUri(uri);
+  }
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+    <View style={styles.root}>
+      <SafeAreaView style={styles.safe}>
+        <ScrollView contentContainerStyle={styles.content}>
+          <View style={styles.header}>
+            <View style={styles.brandRow}>
+              <View style={styles.brandDot} />
+              <Text style={styles.brand}>footprint</Text>
+            </View>
+            <Text style={styles.subtitle}>현장 체크인 · 한국 · 일본 · 태국 (v1)</Text>
+          </View>
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+          {backendReady === false && (
+            <View style={styles.banner}>
+              <Text style={styles.bannerText}>
+                백엔드 미설정 — 검증·로컬 기록만 됩니다. supabase/README의 .env 설정 후 동기화됩니다.
+              </Text>
+            </View>
+          )}
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+          {phase === 'idle' && (
+            <View style={styles.center}>
+              <Text style={styles.hint}>지금 있는 곳을 체크인해 어느 지역인지 인증해보세요.</Text>
+            </View>
+          )}
 
-        <View className="rounded-2xl bg-black px-5 py-4">
-          <Text className="text-sm font-semibold uppercase tracking-widest text-white">
-            NativeWind is ready
-          </Text>
+          {phase === 'locating' && (
+            <View style={styles.center}>
+              <ActivityIndicator color={Palette.gold} />
+              <Text style={styles.hint}>위치를 잡는 중…</Text>
+            </View>
+          )}
+
+          {phase === 'denied' && (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>위치 권한이 필요해요</Text>
+              <Text style={styles.cardBody}>
+                설정에서 위치 접근을 허용하면 현장 인증을 할 수 있습니다.
+              </Text>
+            </View>
+          )}
+
+          {phase === 'result' && result && (
+            <View style={styles.card}>
+              {result.ok ? (
+                <>
+                  <Text style={styles.okBadge}>
+                    ✓ {result.country ? COUNTRIES[result.country].nameLocal : ''} 인증됨
+                  </Text>
+                  <Text style={styles.city}>
+                    {result.city && result.country
+                      ? cityNameKo(result.country, result.city.name)
+                      : '도시'}
+                  </Text>
+                  <Text style={styles.region}>{regionDisplayName(result.country, result.regionId)}</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="한 줄 메모 (선택)"
+                    placeholderTextColor={Palette.muted}
+                    value={note}
+                    onChangeText={setNote}
+                    maxLength={80}
+                  />
+                  <View style={styles.photoRow}>
+                    {photoUri ? (
+                      <Image source={{ uri: photoUri }} style={styles.thumb} contentFit="cover" />
+                    ) : (
+                      <View style={[styles.thumb, styles.thumbEmpty]}>
+                        <Text style={styles.thumbEmptyText}>사진</Text>
+                      </View>
+                    )}
+                    <View style={styles.photoBtns}>
+                      <Pressable style={styles.photoBtn} onPress={() => addPhoto('camera')}>
+                        <Text style={styles.photoBtnText}>📷 촬영</Text>
+                      </Pressable>
+                      <Pressable style={styles.photoBtn} onPress={() => addPhoto('library')}>
+                        <Text style={styles.photoBtnText}>🖼 갤러리</Text>
+                      </Pressable>
+                      {photoUri && (
+                        <Pressable style={styles.photoBtn} onPress={() => setPhotoUri(null)}>
+                          <Text style={[styles.photoBtnText, { color: Palette.muted }]}>제거</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.errTitle}>
+                    {result.reason === 'no-region' && '지원 지역이 아니에요'}
+                    {result.reason === 'low-accuracy' && 'GPS 정확도가 낮아요'}
+                    {result.reason === 'no-fix' && '위치를 못 잡았어요'}
+                  </Text>
+                  <Text style={styles.cardBody}>
+                    {result.reason === 'no-region' &&
+                      'v1은 한국·일본을 지원합니다. 해당 국가 안에서 다시 시도해보세요.'}
+                    {result.reason === 'low-accuracy' && '잠시 후 야외에서 다시 시도해보세요.'}
+                    {result.reason === 'no-fix' && '위치 신호를 확인하고 다시 시도해보세요.'}
+                  </Text>
+                </>
+              )}
+            </View>
+          )}
+
+          {phase === 'done' && (
+            <View style={styles.card}>
+              <Text style={styles.okBadge}>기록 완료</Text>
+              <Text style={styles.cardBody}>
+                {backendReady ? '동기화 큐에 저장됐습니다.' : '로컬에 저장됐습니다 (백엔드 연결 시 동기화).'}
+              </Text>
+            </View>
+          )}
+        </ScrollView>
+
+        <View style={styles.actions}>
+          {(phase === 'idle' || phase === 'locating') && (
+            <Pressable
+              style={styles.primary}
+              disabled={phase === 'locating'}
+              onPress={handleCheckin}>
+              <Text style={styles.primaryText}>＋ 지금 여기 체크인</Text>
+            </Pressable>
+          )}
+          {phase === 'result' && result?.ok && (
+            <Pressable style={styles.primary} onPress={handleRecord}>
+              <Text style={styles.primaryText}>이 도시 기록하기</Text>
+            </Pressable>
+          )}
+          {(phase === 'result' || phase === 'denied' || phase === 'done') && (
+            <Pressable style={styles.secondary} onPress={reset}>
+              <Text style={styles.secondaryText}>다시</Text>
+            </Pressable>
+          )}
+          {phase === 'idle' && (
+            <View style={styles.devRow}>
+              {TEST_POINTS.map((t) => (
+                <Pressable key={t.label} style={styles.devBtn} onPress={() => runResolve(t.pos, 15)}>
+                  <Text style={styles.devText}>{t.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
         </View>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
       </SafeAreaView>
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
+  root: { flex: 1, backgroundColor: Palette.bg },
+  safe: { flex: 1 },
+  content: { flexGrow: 1, padding: Space.lg, gap: Space.lg },
+  header: { gap: Space.xs, marginTop: Space.sm },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: Space.sm },
+  brandDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: Palette.gold },
+  brand: { color: Palette.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.5 },
+  subtitle: { color: Palette.muted, fontSize: 14 },
+  banner: {
+    backgroundColor: Palette.bgElevated,
+    borderRadius: 12,
+    padding: Space.md,
+    borderWidth: 1,
+    borderColor: Palette.surfaceLine,
   },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
+  bannerText: { color: Palette.muted, fontSize: 13, lineHeight: 19 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Space.md, minHeight: 240 },
+  hint: { color: Palette.muted, fontSize: 16, textAlign: 'center', paddingHorizontal: Space.lg },
+  card: {
+    backgroundColor: Palette.bgElevated,
+    borderRadius: 18,
+    padding: Space.lg,
+    gap: Space.sm,
+    borderWidth: 1,
+    borderColor: Palette.surfaceLine,
+  },
+  cardTitle: { color: Palette.ink, fontSize: 18, fontWeight: '700' },
+  cardBody: { color: Palette.muted, fontSize: 15, lineHeight: 22 },
+  okBadge: { color: Palette.gold, fontSize: 15, fontWeight: '700' },
+  city: { color: Palette.ink, fontSize: 28, fontWeight: '800' },
+  region: { color: Palette.muted, fontSize: 16 },
+  errTitle: { color: Palette.ink, fontSize: 18, fontWeight: '700' },
+  input: {
+    marginTop: Space.sm,
+    backgroundColor: Palette.surface,
+    borderRadius: 12,
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm,
+    color: Palette.ink,
+    fontSize: 16,
+  },
+  photoRow: { flexDirection: 'row', gap: Space.md, marginTop: Space.sm, alignItems: 'center' },
+  thumb: { width: 64, height: 64, borderRadius: 12, backgroundColor: Palette.surface },
+  thumbEmpty: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Palette.surfaceLine },
+  thumbEmptyText: { color: Palette.muted, fontSize: 12 },
+  photoBtns: { flexDirection: 'row', gap: Space.sm, flexWrap: 'wrap', flex: 1 },
+  photoBtn: {
+    backgroundColor: Palette.surface,
+    borderRadius: 10,
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm,
+  },
+  photoBtnText: { color: Palette.ink, fontSize: 14 },
+  actions: { padding: Space.lg, gap: Space.sm },
+  primary: {
+    backgroundColor: Palette.gold,
+    borderRadius: 16,
+    paddingVertical: Space.md,
     alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
   },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
+  primaryText: { color: Palette.bg, fontSize: 16, fontWeight: '700' },
+  secondary: { paddingVertical: Space.sm, alignItems: 'center' },
+  secondaryText: { color: Palette.muted, fontSize: 15 },
+  devRow: { flexDirection: 'row', justifyContent: 'center', gap: Space.lg },
+  devBtn: { paddingVertical: Space.sm, alignItems: 'center' },
+  devText: { color: Palette.surfaceLine, fontSize: 13 },
 });

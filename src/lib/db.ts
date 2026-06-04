@@ -24,6 +24,15 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
           attempts    INTEGER NOT NULL DEFAULT 0,
           last_error  TEXT
         );
+        -- Local-first fill projection. Mirrors the server's visits aggregate so
+        -- the map fills instantly and offline, before/independent of sync.
+        CREATE TABLE IF NOT EXISTS visits_local (
+          region_id        TEXT PRIMARY KEY,
+          country          TEXT NOT NULL,
+          first_visited_at TEXT NOT NULL,
+          last_visited_at  TEXT NOT NULL,
+          visit_count      INTEGER NOT NULL DEFAULT 1
+        );
       `);
       return db;
     })();

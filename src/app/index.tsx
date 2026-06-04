@@ -20,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
 import { loadRegions, resolveCheckin, type ResolvedCheckin } from '@/data';
+import { cityNameKo, regionNameKo } from '@/data/names-ko';
 import { recordCheckin } from '@/lib/checkinService';
 import { ensureAnonymousSession } from '@/lib/supabase';
 import { COUNTRIES, type Position } from '@/types/domain';
@@ -50,11 +51,11 @@ export default function CheckinScreen() {
       .catch(() => setBackendReady(false));
   }, []);
 
-  function regionLocalName(country: ResolvedCheckin['country'], regionId: string | null) {
+  function regionDisplayName(country: ResolvedCheckin['country'], regionId: string | null) {
     if (!country || !regionId) return '';
-    return (
-      loadRegions(country).find((r) => r.properties.id === regionId)?.properties.nameLocal ?? regionId
-    );
+    const en =
+      loadRegions(country).find((r) => r.properties.id === regionId)?.properties.name ?? regionId;
+    return regionNameKo(regionId, en);
   }
 
   function runResolve(pos: Position, accuracyM: number | null) {
@@ -85,7 +86,7 @@ export default function CheckinScreen() {
       userId: userId ?? 'local-only',
       regionId: result.regionId!,
       cityId: result.city?.id ?? null,
-      cityName: result.city?.nameLocal ?? null,
+      cityName: result.city?.name ?? null,
       country: result.country,
       lat: coords.pos[1],
       lng: coords.pos[0],
@@ -152,8 +153,12 @@ export default function CheckinScreen() {
                   <Text style={styles.okBadge}>
                     ✓ {result.country ? COUNTRIES[result.country].nameLocal : ''} 인증됨
                   </Text>
-                  <Text style={styles.city}>{result.city?.nameLocal ?? '도시'}</Text>
-                  <Text style={styles.region}>{regionLocalName(result.country, result.regionId)}</Text>
+                  <Text style={styles.city}>
+                    {result.city && result.country
+                      ? cityNameKo(result.country, result.city.name)
+                      : '도시'}
+                  </Text>
+                  <Text style={styles.region}>{regionDisplayName(result.country, result.regionId)}</Text>
                   <TextInput
                     style={styles.input}
                     placeholder="한 줄 메모 (선택)"

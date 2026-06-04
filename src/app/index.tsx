@@ -1,12 +1,12 @@
 /**
  * Check-in screen (M1 home). The globe entry replaces this in M2.
  *
- * Flow: get GPS → verifyCheckin against bundled Japan regions → show the
- * matched prefecture + nearest city (or a clear error) → record locally
- * (syncs to Supabase when a backend is configured).
+ * Flow: get GPS → resolveCheckin against every bundled country → show the
+ * matched country / prefecture / nearest city (or a clear error) → record
+ * locally (syncs to Supabase when a backend is configured).
  */
 import * as Location from 'expo-location';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -19,24 +19,21 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
-import { loadCities, loadRegions } from '@/data';
-import { verifyCheckin, type VerifyResult } from '@/lib/geo';
+import { loadRegions, resolveCheckin, type ResolvedCheckin } from '@/data';
 import { recordCheckin } from '@/lib/checkinService';
 import { ensureAnonymousSession } from '@/lib/supabase';
-import type { Position } from '@/types/domain';
+import { COUNTRIES, type Position } from '@/types/domain';
 
 type Phase = 'idle' | 'locating' | 'result' | 'denied' | 'done';
 
-const TOKYO: Position = [139.6917, 35.6895];
+const TEST_POINTS: { label: string; pos: Position }[] = [
+  { label: '서울로 테스트', pos: [126.978, 37.5665] },
+  { label: '도쿄로 테스트', pos: [139.6917, 35.6895] },
+];
 
 export default function CheckinScreen() {
-  const regions = useMemo(() => loadRegions('JP'), []);
-  const cities = useMemo(() => loadCities('JP'), []);
-  const regionName = (id: string | null) =>
-    regions.find((r) => r.properties.id === id)?.properties.nameLocal ?? id ?? '';
-
   const [phase, setPhase] = useState<Phase>('idle');
-  const [result, setResult] = useState<VerifyResult | null>(null);
+  const [result, setResult] = useState<ResolvedCheckin | null>(null);
   const [coords, setCoords] = useState<{ pos: Position; accuracyM: number | null } | null>(null);
   const [note, setNote] = useState('');
   const [userId, setUserId] = useState<string | null>(null);
@@ -53,9 +50,16 @@ export default function CheckinScreen() {
       .catch(() => setBackendReady(false));
   }, []);
 
-  async function runVerify(pos: Position, accuracyM: number | null) {
+  function regionLocalName(country: ResolvedCheckin['country'], regionId: string | null) {
+    if (!country || !regionId) return '';
+    return (
+      loadRegions(country).find((r) => r.properties.id === regionId)?.properties.nameLocal ?? regionId
+    );
+  }
+
+  function runResolve(pos: Position, accuracyM: number | null) {
     setCoords({ pos, accuracyM });
-    setResult(verifyCheckin({ pos, accuracyM, regions, cities }));
+    setResult(resolveCheckin(pos, accuracyM));
     setPhase('result');
   }
 
@@ -68,21 +72,21 @@ export default function CheckinScreen() {
     }
     try {
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      await runVerify([loc.coords.longitude, loc.coords.latitude], loc.coords.accuracy ?? null);
+      runResolve([loc.coords.longitude, loc.coords.latitude], loc.coords.accuracy ?? null);
     } catch {
-      setResult({ ok: false, reason: 'no-fix', regionId: null, city: null });
+      setResult({ ok: false, reason: 'no-fix', regionId: null, city: null, country: null });
       setPhase('result');
     }
   }
 
   async function handleRecord() {
-    if (!result?.ok || !coords) return;
+    if (!result?.ok || !result.country || !coords) return;
     await recordCheckin({
       userId: userId ?? 'local-only',
       regionId: result.regionId!,
       cityId: result.city?.id ?? null,
       cityName: result.city?.nameLocal ?? null,
-      country: 'JP',
+      country: result.country,
       lat: coords.pos[1],
       lng: coords.pos[0],
       accuracyM: coords.accuracyM,
@@ -108,7 +112,7 @@ export default function CheckinScreen() {
               <View style={styles.brandDot} />
               <Text style={styles.brand}>footprint</Text>
             </View>
-            <Text style={styles.subtitle}>현장 체크인 · 일본 (v1)</Text>
+            <Text style={styles.subtitle}>현장 체크인 · 한국 · 일본 (v1)</Text>
           </View>
 
           {backendReady === false && (
@@ -121,7 +125,7 @@ export default function CheckinScreen() {
 
           {phase === 'idle' && (
             <View style={styles.center}>
-              <Text style={styles.hint}>지금 있는 곳을 체크인해 어느 현인지 인증해보세요.</Text>
+              <Text style={styles.hint}>지금 있는 곳을 체크인해 어느 지역인지 인증해보세요.</Text>
             </View>
           )}
 
@@ -145,9 +149,11 @@ export default function CheckinScreen() {
             <View style={styles.card}>
               {result.ok ? (
                 <>
-                  <Text style={styles.okBadge}>✓ 인증됨</Text>
+                  <Text style={styles.okBadge}>
+                    ✓ {result.country ? COUNTRIES[result.country].nameLocal : ''} 인증됨
+                  </Text>
                   <Text style={styles.city}>{result.city?.nameLocal ?? '도시'}</Text>
-                  <Text style={styles.region}>{regionName(result.regionId)}</Text>
+                  <Text style={styles.region}>{regionLocalName(result.country, result.regionId)}</Text>
                   <TextInput
                     style={styles.input}
                     placeholder="한 줄 메모 (선택)"
@@ -160,13 +166,13 @@ export default function CheckinScreen() {
               ) : (
                 <>
                   <Text style={styles.errTitle}>
-                    {result.reason === 'no-region' && '지원 구역이 아니에요'}
+                    {result.reason === 'no-region' && '지원 지역이 아니에요'}
                     {result.reason === 'low-accuracy' && 'GPS 정확도가 낮아요'}
                     {result.reason === 'no-fix' && '위치를 못 잡았어요'}
                   </Text>
                   <Text style={styles.cardBody}>
                     {result.reason === 'no-region' &&
-                      'v1은 일본만 지원합니다. 일본 안에서 다시 시도해보세요.'}
+                      'v1은 한국·일본을 지원합니다. 해당 국가 안에서 다시 시도해보세요.'}
                     {result.reason === 'low-accuracy' && '잠시 후 야외에서 다시 시도해보세요.'}
                     {result.reason === 'no-fix' && '위치 신호를 확인하고 다시 시도해보세요.'}
                   </Text>
@@ -205,9 +211,13 @@ export default function CheckinScreen() {
             </Pressable>
           )}
           {phase === 'idle' && (
-            <Pressable style={styles.devBtn} onPress={() => runVerify(TOKYO, 15)}>
-              <Text style={styles.devText}>개발: 도쿄로 테스트</Text>
-            </Pressable>
+            <View style={styles.devRow}>
+              {TEST_POINTS.map((t) => (
+                <Pressable key={t.label} style={styles.devBtn} onPress={() => runResolve(t.pos, 15)}>
+                  <Text style={styles.devText}>{t.label}</Text>
+                </Pressable>
+              ))}
+            </View>
           )}
         </View>
       </SafeAreaView>
@@ -267,6 +277,7 @@ const styles = StyleSheet.create({
   primaryText: { color: Palette.bg, fontSize: 16, fontWeight: '700' },
   secondary: { paddingVertical: Space.sm, alignItems: 'center' },
   secondaryText: { color: Palette.muted, fontSize: 15 },
+  devRow: { flexDirection: 'row', justifyContent: 'center', gap: Space.lg },
   devBtn: { paddingVertical: Space.sm, alignItems: 'center' },
   devText: { color: Palette.surfaceLine, fontSize: 13 },
 });

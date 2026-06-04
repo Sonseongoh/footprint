@@ -42,6 +42,13 @@
         {
           "locationWhenInUsePermission": "방문한 도시를 현장에서 인증하기 위해 위치를 사용합니다."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "체크인에 남길 사진을 고르기 위해 사진 접근이 필요합니다.",
+          "cameraPermission": "체크인에 남길 사진을 찍기 위해 카메라가 필요합니다."
+        }
       ]
     ],
     "experiments": {

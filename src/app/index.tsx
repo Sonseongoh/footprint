@@ -5,6 +5,7 @@
  * matched country / prefecture / nearest city (or a clear error) → record
  * locally (syncs to Supabase when a backend is configured).
  */
+import { Image } from 'expo-image';
 import * as Location from 'expo-location';
 import { useEffect, useState } from 'react';
 import {
@@ -22,6 +23,7 @@ import { Palette, Space } from '@/constants/footprint-theme';
 import { loadRegions, resolveCheckin, type ResolvedCheckin } from '@/data';
 import { cityNameKo, regionNameKo } from '@/data/names-ko';
 import { recordCheckin } from '@/lib/checkinService';
+import { pickFromLibrary, takePhoto } from '@/lib/photo';
 import { ensureAnonymousSession } from '@/lib/supabase';
 import { COUNTRIES, type Position } from '@/types/domain';
 
@@ -37,6 +39,7 @@ export default function CheckinScreen() {
   const [result, setResult] = useState<ResolvedCheckin | null>(null);
   const [coords, setCoords] = useState<{ pos: Position; accuracyM: number | null } | null>(null);
   const [note, setNote] = useState('');
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [backendReady, setBackendReady] = useState<boolean | null>(null);
 
@@ -92,16 +95,24 @@ export default function CheckinScreen() {
       lng: coords.pos[0],
       accuracyM: coords.accuracyM,
       note: note.trim() || null,
+      photoUri,
     });
     setPhase('done');
     setNote('');
+    setPhotoUri(null);
   }
 
   function reset() {
     setResult(null);
     setCoords(null);
     setNote('');
+    setPhotoUri(null);
     setPhase('idle');
+  }
+
+  async function addPhoto(source: 'camera' | 'library') {
+    const uri = source === 'camera' ? await takePhoto() : await pickFromLibrary();
+    if (uri) setPhotoUri(uri);
   }
 
   return (
@@ -167,6 +178,28 @@ export default function CheckinScreen() {
                     onChangeText={setNote}
                     maxLength={80}
                   />
+                  <View style={styles.photoRow}>
+                    {photoUri ? (
+                      <Image source={{ uri: photoUri }} style={styles.thumb} contentFit="cover" />
+                    ) : (
+                      <View style={[styles.thumb, styles.thumbEmpty]}>
+                        <Text style={styles.thumbEmptyText}>사진</Text>
+                      </View>
+                    )}
+                    <View style={styles.photoBtns}>
+                      <Pressable style={styles.photoBtn} onPress={() => addPhoto('camera')}>
+                        <Text style={styles.photoBtnText}>📷 촬영</Text>
+                      </Pressable>
+                      <Pressable style={styles.photoBtn} onPress={() => addPhoto('library')}>
+                        <Text style={styles.photoBtnText}>🖼 갤러리</Text>
+                      </Pressable>
+                      {photoUri && (
+                        <Pressable style={styles.photoBtn} onPress={() => setPhotoUri(null)}>
+                          <Text style={[styles.photoBtnText, { color: Palette.muted }]}>제거</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  </View>
                 </>
               ) : (
                 <>
@@ -272,6 +305,18 @@ const styles = StyleSheet.create({
     color: Palette.ink,
     fontSize: 16,
   },
+  photoRow: { flexDirection: 'row', gap: Space.md, marginTop: Space.sm, alignItems: 'center' },
+  thumb: { width: 64, height: 64, borderRadius: 12, backgroundColor: Palette.surface },
+  thumbEmpty: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Palette.surfaceLine },
+  thumbEmptyText: { color: Palette.muted, fontSize: 12 },
+  photoBtns: { flexDirection: 'row', gap: Space.sm, flexWrap: 'wrap', flex: 1 },
+  photoBtn: {
+    backgroundColor: Palette.surface,
+    borderRadius: 10,
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm,
+  },
+  photoBtnText: { color: Palette.ink, fontSize: 14 },
   actions: { padding: Space.lg, gap: Space.sm },
   primary: {
     backgroundColor: Palette.gold,

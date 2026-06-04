@@ -1,0 +1,14 @@
+[
+  { "id": "jp-tokyo",     "regionId": "JP-13", "country": "JP", "name": "Tokyo",     "nameLocal": "도쿄",   "position": [139.6917, 35.6895] },
+  { "id": "jp-yokohama",  "regionId": "JP-14", "country": "JP", "name": "Yokohama",  "nameLocal": "요코하마", "position": [139.6380, 35.4437] },
+  { "id": "jp-osaka",     "regionId": "JP-27", "country": "JP", "name": "Osaka",     "nameLocal": "오사카",  "position": [135.5023, 34.6937] },
+  { "id": "jp-kyoto",     "regionId": "JP-26", "country": "JP", "name": "Kyoto",     "nameLocal": "교토",   "position": [135.7681, 35.0116] },
+  { "id": "jp-nara",      "regionId": "JP-29", "country": "JP", "name": "Nara",      "nameLocal": "나라",   "position": [135.8048, 34.6851] },
+  { "id": "jp-kobe",      "regionId": "JP-28", "country": "JP", "name": "Kobe",      "nameLocal": "고베",   "position": [135.1955, 34.6901] },
+  { "id": "jp-nagoya",    "regionId": "JP-23", "country": "JP", "name": "Nagoya",    "nameLocal": "나고야",  "position": [136.9066, 35.1815] },
+  { "id": "jp-sapporo",   "regionId": "JP-01", "country": "JP", "name": "Sapporo",   "nameLocal": "삿포로",  "position": [141.3545, 43.0618] },
+  { "id": "jp-fukuoka",   "regionId": "JP-40", "country": "JP", "name": "Fukuoka",   "nameLocal": "후쿠오카", "position": [130.4017, 33.5904] },
+  { "id": "jp-hiroshima", "regionId": "JP-34", "country": "JP", "name": "Hiroshima", "nameLocal": "히로시마", "position": [132.4553, 34.3853] },
+  { "id": "jp-sendai",    "regionId": "JP-04", "country": "JP", "name": "Sendai",    "nameLocal": "센다이",  "position": [140.8694, 38.2682] },
+  { "id": "jp-naha",      "regionId": "JP-47", "country": "JP", "name": "Naha",      "nameLocal": "나하",   "position": [127.6809, 26.2124] }
+]

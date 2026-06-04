@@ -106,14 +106,51 @@ Mode: Startup
 - 나라별 채움 지도를 이미지나 링크로 공유
 - "내 일본 지도 봐" 같은 자랑 포인트가 전파 동력이 된다
 
+## v1 Architecture Decisions (2026-06-02 office hours)
+
+구현 계획(/plan-eng-review)으로 넘어가기 전에 아키텍처를 가르는 미결정을 확정했다.
+
+- **v1 대상 나라**: 한국, 일본, 태국 3개로 한정. 도시 경계 데이터 범위를 좁혀 v1 구현을 가볍게 한다.
+- **위치 인증 판정**: ~~도시 중심좌표 + 반경~~ → **변경(2026-06-02 design review)**: 행정구역(admin-1) 경계 polygon point-in-polygon. 지도 채움을 행정구역 단위로 하면서 폴리곤을 어차피 로드하므로 검증도 폴리곤으로 통일. (반경 방식은 폐기, polygon v2 계획 앞당김)
+- **저장/동기화**: 처음부터 백엔드(Supabase 등). 링크 소셜 공유가 v1 요구사항이므로 로컬 전용은 불가.
+- **공유 v1**: 링크 기반 소셜 공유 (공개 URL로 내 나라별 채움 지도를 공유). 이미지 캡처 공유도 부가로 가능.
+- **사후 복구 최소 증거**: 사진 EXIF의 GPS 좌표 + 촬영 시각이 해당 도시 범위 안일 때만 사후 인정. 둘 중 하나라도 없으면 거부.
+- **인증 마찰 주의**: 백엔드+소셜이 v1에 들어가면 계정/로그인 마찰이 "여행 중 입력 마찰 최소화" 원칙과 약하게 충돌한다. plan-eng-review에서 *익명 시작 후 나중에 계정 연결(deferred auth)* 패턴을 검토할 것.
+
+## Visual Design (plan-design-review 2026-06-02)
+
+방향 승인: **다크 나이트 + 골드 수집 포인트 + 게임풍 지구본**.
+
+### 시각 시스템
+- 팔레트: 배경 딥 나이트 네이비 `#0B1026`, 방문/채움 = 골드 `#F5C26B`(보물 수집 은유), 미방문 = 슬레이트 `#222B4D`/외곽 `#46517D`, 바다 = 틸→네이비 그라데이션. 액센트 1개(골드).
+- 타이포: 디스플레이/숫자 = Space Grotesk, 본문 = Pretendard(한글+라틴). 본문 ≥ 16px, 대비 ≥ 4.5:1.
+- 스페이싱: 4px 베이스. 미니멀 크롬, 카드 없이 지구본/지도를 포스터처럼.
+- 모션: 지구본 느린 자동 회전 + 관성 드래그, 나라 탭 시 스프링 줌, 새 구역 채울 때 골드 "팝" 애니메이션.
+
+### 화면 모델
+- **진입 지구본**: 활성 3개국 골드 발광 핀, 상단 수집 진행 스탯, 하단 "지금 여기 체크인" 골드 필.
+- **나라 도시 채움맵**: ~~추상 실루엣 + 점~~ → **행정구역(admin-1) 경계 choropleth**. 실제 GeoJSON 경계선으로 정확하게, 방문 구역=골드 채움 / 미방문=슬레이트, 상단 "채운 지역 N/M" 진행바, 범례(채운/미방문/경계선), 최근 체크인 칩.
+- 채움 단위 = **행정구역(시·도/현/주)**. 도시별 메모·사진은 그 구역 안의 깊이로 기록.
+- **공유 웹**: 같은 행정구역 choropleth(채움+횟수만), 정확 위치·메모 비공개.
+
+### 인터랙션 상태
+- **첫 실행 빈 상태 = 온보딩 스포트라이트**: 지구본이 3개국을 스츠로 순회 + "여기부터 채워보세요" 가이드 + 0/N 진행 + 샘플 채움 미리보기. (설계 '30초 개념 이해'와 정합)
+- 체크인: 로딩(GPS 잡는 중) / 지원 도시 아님(가까운 활성국 제안) / 권한 거부(설정 유도) / 성공(골드 팝 애니메이션).
+- 지도: 동기화 중(은은한 스피너) / 오프라인(큐 대기 배지) / 빈 나라(온보딩 카피).
+- 접근성: 터치 타겟 ≥ 44px, 본문 ≥ 16px, 대비 ≥ 4.5:1, 구역 탭은 라벨/상태 음성 안내.
+
+### 와이어프레임
+- `footprint-wireframe.png`(지구본 홈+점 버전), `footprint-map-v2.png`(행정구역 채움 버전). browse 캡처, 실제 미감 참고용.
+
 ## Open Questions
 
-- `Been`, `Polarsteps`의 정확한 빈틈은 무엇인가?
-- 첫 번째로 가장 매력적으로 보여줄 나라는 어디인가?
-- 도시 경계 판정은 얼마나 정교해야 하는가?
-- 사후 복구에 필요한 최소 증거는 무엇인가?
+- `Been`, `Polarsteps`의 정확한 빈틈은 무엇인가? (직접 사용 과제 — 미완료)
+- 도시별 반경을 어떻게 튜닝할 것인가? (대도시 vs 소도시 반경 차등)
 - 사용자는 채운 비율, 방문 횟수, 지도 비주얼 중 무엇에 가장 반응하는가?
-- 이 앱은 개인 수집 앱으로 시작해야 하는가, 아니면 초기에 소셜 공유도 강하게 넣어야 하는가?
+- ~~첫 번째로 가장 매력적으로 보여줄 나라는?~~ → 결정: 한국·일본·태국 3개
+- ~~도시 경계 판정은 얼마나 정교해야?~~ → 결정: 중심좌표+반경
+- ~~사후 복구에 필요한 최소 증거는?~~ → 결정: EXIF GPS+시각
+- ~~개인 수집 vs 초기 소셜?~~ → 결정: 링크 소셜 공유를 v1에 포함
 
 ## Success Criteria
 
@@ -125,10 +162,33 @@ Mode: Startup
 
 ## Dependencies
 
-- 나라/도시 경계 데이터
-- 위치 인증 시스템
-- 사후 복구 증거 판정 방식
-- 강한 지도 UI
+- 한국·일본·태국 **행정구역(admin-1) GeoJSON** (mapshaper/topojson 단순화, 나라별 lazy-load) — 채움 + 검증
+- 주요 도시 포인트 데이터셋 (도시명 + 좌표) — 오프라인 도시 깊이/이름(가장 가까운 도시)
+- point-in-polygon 모듈 (@turf/boolean-point-in-polygon 또는 robust-point-in-polygon, 직접 구현 금지)
+- 위치 인증 시스템 (디바이스 GPS + 행정구역 polygon point-in-polygon, accuracy 게이트, "구역 없음" 처리)
+- 사진 EXIF(GPS+촬영시각) 파싱 → 사후 복구 증거 판정
+- 백엔드: Supabase 등 (Postgres + Auth + Storage) — 계정·동기화·공유 링크
+- 사진 저장: 백엔드 스토리지
+- 강한 지도 UI (Expo 56, 채움/미채움 도시 시각 구분)
+
+## v56 API 검증 (2026-06-02, 추측 금지 — 문서 대조 완료)
+
+구현 전 핵심 API를 Expo v56 / 각 라이브러리 문서로 확인. 옛 패턴 함정 표시(⚠️).
+
+| 영역 | 확정 API (v56) | 함정 |
+|---|---|---|
+| 애니메이션 | Reanimated 4: `useSharedValue`/`useAnimatedStyle`/`useAnimatedProps`. SVG props는 `useAnimatedProps`+`createAnimatedPropAdapter`(`SVGAdapter`), 색은 `processColor` | ⚠️ `react-native-worklets` 별도 설치 필수(설치됨), **New Architecture(Fabric) 강제** → `app.json` newArchEnabled 확인 |
+| 제스처 | `Gesture.Pan().onUpdate()` + `GestureDetector`, 루트에 `GestureHandlerRootView` 필수 | — |
+| 로컬DB | expo-sqlite: `openDatabaseAsync`/`runAsync`/`getAllAsync`/`execAsync`/`prepareAsync` | — |
+| 사진 리사이즈 | `ImageManipulator.manipulate().resize().renderAsync().saveAsync({format: SaveFormat.JPEG, compress})` | ⚠️ 옛 `manipulateAsync` **폐기됨** |
+| 사진 선택/EXIF | expo-image-picker `launchImageLibraryAsync({exif:true})` → `exif`에 GPS | ⚠️ iOS 카메라 촬영분은 GPS 미포함(v1.1 복구는 라이브러리 사진만) |
+| 위치 | expo-location `getCurrentPositionAsync({accuracy})`, `requestForegroundPermissionsAsync` | reverseGeocode는 iOS 네트워크 필요 → 도시명은 번들 포인트로 |
+| 백엔드 | `createClient(url,key,{auth:{storage:LargeSecureStore, autoRefreshToken:true, persistSession:true, detectSessionInUrl:false}})` | SecureStore 2048byte 한계 → SecureStore(키)+AsyncStorage(세션) 조합 |
+| 인증(deferred) | `signInAnonymously()` → `updateUser({email})` 또는 `linkIdentity({provider})` | — |
+| 공유 웹 | `app.json` `expo.web.output:"static"`(또는 single), `npx expo export --platform web` → `eas deploy` | — |
+
+### M1 추가 설치 필요 (현재 0개 설치됨)
+`@supabase/supabase-js`, `@react-native-async-storage/async-storage`, `expo-secure-store`, `expo-location`, `expo-image-picker`, `expo-image-manipulator`, `expo-sqlite`, `react-native-svg`, `d3-geo`(+`@types/d3-geo`), `@turf/boolean-point-in-polygon`. (reanimated·gesture-handler·worklets는 이미 설치됨)
 
 ## The Assignment
 

@@ -21,7 +21,10 @@ import type { Feature, MultiPolygon, Polygon } from 'geojson';
 import type { CityPoint, CountryCode, Position, Region } from '@/types/domain';
 
 /** A region polygon feature. `properties.id` matches Region.id. */
-export type RegionFeature = Feature<Polygon | MultiPolygon, { id: string; country: CountryCode }>;
+export type RegionFeature = Feature<
+  Polygon | MultiPolygon,
+  { id: string; country: CountryCode; name: string; nameLocal: string }
+>;
 
 /** Default GPS accuracy gate (meters). Worse than this → ask the user to retry. */
 export const MAX_ACCURACY_M = 500;

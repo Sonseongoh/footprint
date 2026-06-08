@@ -74,14 +74,22 @@ class LargeSecureStore implements SupportedStorage {
   }
 }
 
-export const supabase = createClient(supabaseUrl ?? '', supabaseAnonKey ?? '', {
-  auth: {
-    storage: new LargeSecureStore(),
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false,
+// supabase-js throws "supabaseUrl is required" on an empty URL, which would
+// crash the app at import time before the backend is configured. Fall back to a
+// syntactically-valid placeholder so the app still loads in local-only mode;
+// real network calls then fail and are caught (backendReady = false).
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder-anon-key',
+  {
+    auth: {
+      storage: new LargeSecureStore(),
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false,
+    },
   },
-});
+);
 
 /**
  * Ensures there is a session, creating an anonymous user on first launch.

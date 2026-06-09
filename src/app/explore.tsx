@@ -10,7 +10,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
-import { availableCountries, loadRegions } from '@/data';
+import { availableCountries, loadCities, loadRegions } from '@/data';
 import { CountryFillMap } from '@/features/map/CountryFillMap';
 import { getLocalVisitsByRegion } from '@/lib/localVisits';
 import { COUNTRIES, type CountryCode, type Visit } from '@/types/domain';
@@ -19,6 +19,7 @@ export default function MapScreen() {
   const countries = useMemo(() => availableCountries(), []);
   const [country, setCountry] = useState<CountryCode>(countries[0] ?? 'JP');
   const regions = useMemo(() => loadRegions(country), [country]);
+  const cities = useMemo(() => loadCities(country), [country]);
   const [visits, setVisits] = useState<Record<string, Visit>>({});
 
   // Reload the local fill state whenever the tab regains focus or the country
@@ -67,7 +68,7 @@ export default function MapScreen() {
         )}
 
         <View style={styles.mapWrap}>
-          <CountryFillMap regions={regions} visits={visits} />
+          <CountryFillMap regions={regions} cities={cities} visits={visits} />
         </View>
 
         <View style={styles.legend}>
@@ -113,7 +114,8 @@ const styles = StyleSheet.create({
   tabActive: { backgroundColor: Palette.gold },
   tabText: { color: Palette.muted, fontSize: 14, fontWeight: '600' },
   tabTextActive: { color: Palette.bg },
-  mapWrap: { flex: 1, marginVertical: Space.lg },
+  // clip the zoomed/panned map to its own area so it never covers the tabs/legend
+  mapWrap: { flex: 1, marginVertical: Space.lg, overflow: 'hidden', borderRadius: 16 },
   legend: { flexDirection: 'row', alignItems: 'center', gap: Space.lg, justifyContent: 'center' },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: Space.xs },
   legendDot: { width: 12, height: 12, borderRadius: 3 },

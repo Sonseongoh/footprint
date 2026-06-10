@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Palette, Space } from '@/constants/footprint-theme';
 import { availableCountries, loadCities, loadRegions } from '@/data';
 import { CountryFillMap } from '@/features/map/CountryFillMap';
-import { getLocalVisitsByRegion } from '@/lib/localVisits';
+import { getLocalVisitsByRegion, getVisitedCityIds } from '@/lib/localVisits';
 import { COUNTRIES, type CountryCode, type Visit } from '@/types/domain';
 
 export default function MapScreen() {
@@ -21,23 +21,23 @@ export default function MapScreen() {
   const regions = useMemo(() => loadRegions(country), [country]);
   const cities = useMemo(() => loadCities(country), [country]);
   const [visits, setVisits] = useState<Record<string, Visit>>({});
+  const [visitedCities, setVisitedCities] = useState<Set<string>>(new Set());
 
   // Reload the local fill state whenever the tab regains focus or the country
   // changes, so a check-in made on the other tab shows up immediately.
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      getLocalVisitsByRegion(country).then((v) => {
-        if (active) setVisits(v);
-      });
+      getLocalVisitsByRegion(country).then((v) => active && setVisits(v));
+      getVisitedCityIds(country).then((s) => active && setVisitedCities(s));
       return () => {
         active = false;
       };
     }, [country]),
   );
 
-  const filled = Object.keys(visits).length;
-  const unit = country === 'JP' ? '현' : country === 'TH' ? '주' : '시·도';
+  // city collection is the headline metric (도시 단위 깊이)
+  const filledCities = cities.filter((c) => visitedCities.has(c.id)).length;
 
   return (
     <View style={styles.root}>
@@ -46,9 +46,9 @@ export default function MapScreen() {
           <Text style={styles.title}>{COUNTRIES[country].nameLocal}</Text>
           <View style={styles.stat}>
             <Text style={styles.statNum}>
-              {filled} / {regions.length}
+              {filledCities} / {cities.length}
             </Text>
-            <Text style={styles.statLabel}>채운 {unit}</Text>
+            <Text style={styles.statLabel}>채운 도시</Text>
           </View>
         </View>
 
@@ -68,13 +68,20 @@ export default function MapScreen() {
         )}
 
         <View style={styles.mapWrap}>
-          <CountryFillMap regions={regions} cities={cities} visits={visits} />
+          <CountryFillMap
+            regions={regions}
+            cities={cities}
+            visits={visits}
+            visitedCityIds={visitedCities}
+          />
         </View>
 
         <View style={styles.legend}>
-          <Legend color={Palette.gold} label="채움" />
-          <Legend color={Palette.slate} label="미방문" outline />
-          {filled === 0 && <Text style={styles.emptyHint}>체크인하면 지역이 채워집니다.</Text>}
+          <Legend color={Palette.gold} label="방문 도시" />
+          <Legend color={Palette.slate} label="더 채울 곳" outline />
+          {filledCities === 0 && (
+            <Text style={styles.emptyHint}>체크인하면 도시가 채워집니다.</Text>
+          )}
         </View>
       </SafeAreaView>
     </View>

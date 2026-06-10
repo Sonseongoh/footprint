@@ -28,6 +28,36 @@ export async function applyLocalCheckin(
   );
 }
 
+/** Record a checked-in city (drives depth-proportional fill + visited dots). */
+export async function applyLocalCityVisit(
+  cityId: string,
+  country: CountryCode,
+  whenIso: string,
+): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT INTO visits_city_local (city_id, country, first_visited_at, last_visited_at, visit_count)
+     VALUES (?, ?, ?, ?, 1)
+     ON CONFLICT(city_id) DO UPDATE SET
+       visit_count = visit_count + 1,
+       last_visited_at = MAX(last_visited_at, excluded.last_visited_at)`,
+    cityId,
+    country,
+    whenIso,
+    whenIso,
+  );
+}
+
+/** Set of visited city ids for a country. */
+export async function getVisitedCityIds(country: CountryCode): Promise<Set<string>> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ city_id: string }>(
+    'SELECT city_id FROM visits_city_local WHERE country = ?',
+    country,
+  );
+  return new Set(rows.map((r) => r.city_id));
+}
+
 /** Local visited regions for a country, keyed by regionId (for the fill map). */
 export async function getLocalVisitsByRegion(
   country: CountryCode,

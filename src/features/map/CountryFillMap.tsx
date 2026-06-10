@@ -1,16 +1,15 @@
 /**
- * Country fill map (admin-1 choropleth). Projects each region's outline into the
- * viewBox with a simple equirectangular fit (computed manually — d3-geo's
- * fitSize miscomputes scale under Hermes) and draws each ring as a
- * react-native-svg <Polygon>. Visited regions are gold, unvisited slate.
+ * Country fill map. Projects admin-1 region outlines (manual equirectangular fit
+ * — d3-geo's fitSize miscomputes under Hermes) into react-native-svg <Polygon>s.
  *
- * Labels never overlap: a greedy collision cull drops lower-priority labels that
- * would collide (visited regions win), and the two label levels (province ↔ city)
- * crossfade with a gap so they never show at once. Province names show first;
- * city names take over when you zoom deep.
+ * Collection model (도시 단위 깊이):
+ *  - a region's gold fill is DEPTH-PROPORTIONAL: the more of its cities you've
+ *    visited, the more saturated the gold (1/10 cities = faint, 10/10 = full).
+ *  - city dots: visited cities are bright gold, unvisited faint — so empty
+ *    cities stay visible and pull you back ("여수는 갔는데 순천은 안 갔네").
  *
- * Pinch to zoom, drag to pan, double-tap to reset (gesture-handler + reanimated).
- * This is the collection payoff screen — confirmed in /plan-design-review.
+ * Labels never overlap (greedy collision cull). Province ↔ city labels crossfade
+ * with a gap as you zoom. Pinch zoom / drag pan / double-tap reset.
  */
 import type { Position } from 'geojson';
 import { useMemo } from 'react';
@@ -24,7 +23,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import Svg, { Circle, G, Polygon, Text as SvgText } from 'react-native-svg';
+import Svg, { G, Polygon, Text as SvgText } from 'react-native-svg';
 
 import { Palette } from '@/constants/footprint-theme';
 import { cityNameKo, regionNameKo } from '@/data/names-ko';
@@ -40,26 +39,37 @@ const MIN_SCALE = 1;
 const MAX_SCALE = 8;
 const PROVINCE_FONT = 8;
 const CITY_FONT = 6;
+const MIN_FILL = 0.32; // any visit shows at least this much gold
 
 export interface CountryFillMapProps {
   regions: RegionFeature[];
   cities: CityPoint[];
-  /** visited regions keyed by regionId */
+  /** visited regions keyed by regionId (region-level, for fallback tint) */
   visits: Record<string, Visit>;
+  /** ids of cities that have been checked into */
+  visitedCityIds: Set<string>;
 }
 
 interface Poly {
   key: string;
   points: string;
-  visited: boolean;
+  fill: string;
 }
-interface Label {
+interface ProvinceLabel {
   key: string;
   x: number;
   y: number;
   text: string;
   visited: boolean;
-  weight: number; // higher = placed first
+  weight: number;
+}
+interface CityLabel {
+  key: string;
+  x: number;
+  y: number;
+  text: string;
+  visited: boolean;
+  weight: number;
 }
 
 function outerRings(f: RegionFeature): Position[][] {
@@ -68,11 +78,22 @@ function outerRings(f: RegionFeature): Position[][] {
     : f.geometry.coordinates.map((poly) => poly[0]);
 }
 
-/** Greedy collision cull: place high-priority labels first, drop any that would
- *  overlap an already-placed one. Non-overlapping in viewBox → at every zoom. */
-function cull(labels: Label[], fontSize: number): Label[] {
+/** linear blend between two #rrggbb colors */
+function mix(a: string, b: string, t: number): string {
+  const ai = parseInt(a.slice(1), 16);
+  const bi = parseInt(b.slice(1), 16);
+  const r = Math.round(((ai >> 16) & 255) + (((bi >> 16) & 255) - ((ai >> 16) & 255)) * t);
+  const g = Math.round(((ai >> 8) & 255) + (((bi >> 8) & 255) - ((ai >> 8) & 255)) * t);
+  const bl = Math.round((ai & 255) + ((bi & 255) - (ai & 255)) * t);
+  return `#${((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1)}`;
+}
+
+function cull<T extends { x: number; y: number; text: string; weight: number }>(
+  labels: T[],
+  fontSize: number,
+): T[] {
   const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
-  const out: Label[] = [];
+  const out: T[] = [];
   for (const l of [...labels].sort((a, b) => b.weight - a.weight)) {
     const w = Math.max(l.text.length * fontSize * 0.58, fontSize);
     const h = fontSize;
@@ -88,10 +109,30 @@ function cull(labels: Label[], fontSize: number): Label[] {
   return out;
 }
 
-export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps) {
+export function CountryFillMap({ regions, cities, visits, visitedCityIds }: CountryFillMapProps) {
   const { polys, provinces, cityLabels } = useMemo(() => {
-    const empty = { polys: [] as Poly[], provinces: [] as Label[], cityLabels: [] as Label[] };
+    const empty = {
+      polys: [] as Poly[],
+      provinces: [] as ProvinceLabel[],
+      cityLabels: [] as CityLabel[],
+    };
     if (regions.length === 0) return empty;
+
+    // per-region city totals + visited counts → depth ratio
+    const total: Record<string, number> = {};
+    const visitedCount: Record<string, number> = {};
+    for (const c of cities) {
+      total[c.regionId] = (total[c.regionId] ?? 0) + 1;
+      if (visitedCityIds.has(c.id)) {
+        visitedCount[c.regionId] = (visitedCount[c.regionId] ?? 0) + 1;
+      }
+    }
+    const fillFor = (regionId: string): string => {
+      const visited = Boolean(visits[regionId]) || (visitedCount[regionId] ?? 0) > 0;
+      if (!visited) return Palette.slate;
+      const ratio = total[regionId] ? (visitedCount[regionId] ?? 0) / total[regionId] : 0;
+      return mix(Palette.slate, Palette.gold, Math.max(MIN_FILL, Math.min(1, ratio)));
+    };
 
     let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
     for (const f of regions) {
@@ -115,9 +156,10 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
     ];
 
     const polys: Poly[] = [];
-    const rawProvinces: Label[] = [];
+    const rawProvinces: ProvinceLabel[] = [];
     for (const f of regions) {
-      const visited = Boolean(visits[f.properties.id]);
+      const fill = fillFor(f.properties.id);
+      const visited = fill !== Palette.slate;
       let largest: [number, number][] = [];
       outerRings(f).forEach((ring, i) => {
         const pts: string[] = [];
@@ -128,13 +170,12 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
           pts.push(`${xy[0].toFixed(1)},${xy[1].toFixed(1)}`);
         }
         if (pts.length > 2) {
-          polys.push({ key: `${f.properties.id}-${i}`, points: pts.join(' '), visited });
+          polys.push({ key: `${f.properties.id}-${i}`, points: pts.join(' '), fill });
           if (proj.length > largest.length) largest = proj;
         }
       });
       if (largest.length) {
-        let cx = 0, cy = 0;
-        let lx = Infinity, ly = Infinity, hx = -Infinity, hy = -Infinity;
+        let cx = 0, cy = 0, lx = Infinity, ly = Infinity, hx = -Infinity, hy = -Infinity;
         for (const [x, y] of largest) {
           cx += x; cy += y;
           if (x < lx) lx = x;
@@ -149,16 +190,22 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
           y: cy / largest.length,
           text: regionNameKo(f.properties.id, f.properties.name),
           visited,
-          // visited regions always win; otherwise bigger regions first
           weight: (visited ? 1e9 : 0) + area,
         });
       }
     }
 
-    const rawCities: Label[] = cities.map((c, i) => {
+    const rawCities: CityLabel[] = cities.map((c, i) => {
       const [x, y] = project(c.position[0], c.position[1]);
-      // input is population-sorted, so earlier = more important
-      return { key: c.id, x, y, text: cityNameKo(c.country, c.name), visited: false, weight: -i };
+      const visited = visitedCityIds.has(c.id);
+      return {
+        key: c.id,
+        x,
+        y,
+        text: cityNameKo(c.country, c.name),
+        visited,
+        weight: (visited ? 1e9 : 0) - i,
+      };
     });
 
     return {
@@ -166,7 +213,7 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
       provinces: cull(rawProvinces, PROVINCE_FONT),
       cityLabels: cull(rawCities, CITY_FONT),
     };
-  }, [regions, cities, visits]);
+  }, [regions, cities, visits, visitedCityIds]);
 
   const W = Dimensions.get('window').width - 48;
   const H = W * (VIEW_H / VIEW_W);
@@ -214,7 +261,6 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
     transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }],
   }));
 
-  // sequential crossfade with a gap: provinces fully gone before cities appear.
   const provinceProps = useAnimatedProps(() => ({
     opacity: interpolate(scale.value, [1.25, 1.7, 3.0, 3.4], [0, 1, 1, 0], Extrapolation.CLAMP),
   }));
@@ -227,13 +273,7 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
       <Animated.View style={[{ flex: 1, alignItems: 'center', justifyContent: 'center' }, animStyle]}>
         <Svg width={W} height={H} viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}>
           {polys.map((p) => (
-            <Polygon
-              key={p.key}
-              points={p.points}
-              fill={p.visited ? Palette.gold : Palette.slate}
-              stroke={Palette.bg}
-              strokeWidth={0.5}
-            />
+            <Polygon key={p.key} points={p.points} fill={p.fill} stroke={Palette.bg} strokeWidth={0.5} />
           ))}
 
           <AnimatedG animatedProps={provinceProps}>
@@ -253,19 +293,21 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
           </AnimatedG>
 
           <AnimatedG animatedProps={cityProps}>
+            {/* state is carried by label color/weight (no markers):
+                visited = bright white bold, unvisited = dim grey */}
             {cityLabels.map((l) => (
-              <G key={l.key}>
-                <Circle cx={l.x} cy={l.y} r={1.2} fill={Palette.gold} />
-                <SvgText
-                  x={l.x}
-                  y={l.y - 3}
-                  fontSize={CITY_FONT}
-                  fill={Palette.ink}
-                  textAnchor="middle"
-                  alignmentBaseline="baseline">
-                  {l.text}
-                </SvgText>
-              </G>
+              <SvgText
+                key={l.key}
+                x={l.x}
+                y={l.y}
+                fontSize={CITY_FONT}
+                fontWeight={l.visited ? '700' : '400'}
+                fill={l.visited ? Palette.ink : Palette.muted}
+                fillOpacity={l.visited ? 1 : 0.5}
+                textAnchor="middle"
+                alignmentBaseline="middle">
+                {l.text}
+              </SvgText>
             ))}
           </AnimatedG>
         </Svg>

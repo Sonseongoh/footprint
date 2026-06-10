@@ -17,7 +17,7 @@
  */
 import * as Crypto from 'expo-crypto';
 
-import { applyLocalCheckin } from '@/lib/localVisits';
+import { applyLocalCheckin, applyLocalCityVisit } from '@/lib/localVisits';
 import { supabase } from '@/lib/supabase';
 import { enqueue, markFailed, markSynced, pending, type QueuedCheckin } from '@/lib/syncQueue';
 import type { CountryCode, VisitSource } from '@/types/domain';
@@ -54,9 +54,12 @@ export async function recordCheckin(input: RecordCheckinInput): Promise<string> 
     note: input.note,
   };
   await enqueue(checkin, input.photoUri ?? null);
-  // Local-first: update the fill projection immediately so the map reflects the
+  // Local-first: update the fill projections immediately so the map reflects the
   // new visit even with no backend / offline.
   await applyLocalCheckin(checkin.regionId, checkin.country, checkin.createdAt);
+  if (checkin.cityId) {
+    await applyLocalCityVisit(checkin.cityId, checkin.country, checkin.createdAt);
+  }
   // Fire-and-forget: the record is already durable; sync best-effort.
   void flushQueue();
   return id;

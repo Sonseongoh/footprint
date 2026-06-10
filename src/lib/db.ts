@@ -33,6 +33,15 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
           last_visited_at  TEXT NOT NULL,
           visit_count      INTEGER NOT NULL DEFAULT 1
         );
+        -- Per-city collection: which specific cities have been checked into.
+        -- Drives depth-proportional region fill + visited city dots.
+        CREATE TABLE IF NOT EXISTS visits_city_local (
+          city_id          TEXT PRIMARY KEY,
+          country          TEXT NOT NULL,
+          first_visited_at TEXT NOT NULL,
+          last_visited_at  TEXT NOT NULL,
+          visit_count      INTEGER NOT NULL DEFAULT 1
+        );
       `);
       return db;
     })();

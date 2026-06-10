@@ -4,8 +4,10 @@
  * fitSize miscomputes scale under Hermes) and draws each ring as a
  * react-native-svg <Polygon>. Visited regions are gold, unvisited slate.
  *
- * Level-of-detail labels (like a real map): province names show at a slight
- * zoom and fade out as you zoom deeper, where city names + dots fade in.
+ * Level-of-detail labels (declutter clustered metros):
+ *  - large provinces (경기/강원/충남…) get names at a slight zoom
+ *  - small clustered provinces (서울/인천/세종…) only when zoomed more
+ *  - city names + dots fade in deepest
  *
  * Pinch to zoom, drag to pan, double-tap to reset (gesture-handler + reanimated).
  * This is the collection payoff screen — confirmed in /plan-design-review.
@@ -36,6 +38,8 @@ const VIEW_H = 460;
 const PAD = 0.94;
 const MIN_SCALE = 1;
 const MAX_SCALE = 8;
+/** projected bbox max-dimension below which a region is "small/clustered" */
+const SMALL_DIM = 24;
 
 export interface CountryFillMapProps {
   regions: RegionFeature[];
@@ -49,12 +53,19 @@ interface Poly {
   points: string;
   visited: boolean;
 }
-interface Label {
+interface RegionLabel {
   key: string;
   x: number;
   y: number;
   text: string;
   visited: boolean;
+  big: boolean;
+}
+interface CityLabel {
+  key: string;
+  x: number;
+  y: number;
+  text: string;
 }
 
 function outerRings(f: RegionFeature): Position[][] {
@@ -65,7 +76,11 @@ function outerRings(f: RegionFeature): Position[][] {
 
 export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps) {
   const { polys, provinces, cityLabels } = useMemo(() => {
-    const empty = { polys: [] as Poly[], provinces: [] as Label[], cityLabels: [] as Label[] };
+    const empty = {
+      polys: [] as Poly[],
+      provinces: [] as RegionLabel[],
+      cityLabels: [] as CityLabel[],
+    };
     if (regions.length === 0) return empty;
 
     let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
@@ -90,7 +105,7 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
     ];
 
     const polys: Poly[] = [];
-    const provinces: Label[] = [];
+    const provinces: RegionLabel[] = [];
     for (const f of regions) {
       const visited = Boolean(visits[f.properties.id]);
       let largest: [number, number][] = [];
@@ -109,20 +124,29 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
       });
       if (largest.length) {
         let cx = 0, cy = 0;
-        for (const [x, y] of largest) { cx += x; cy += y; }
+        let lx = Infinity, ly = Infinity, hx = -Infinity, hy = -Infinity;
+        for (const [x, y] of largest) {
+          cx += x; cy += y;
+          if (x < lx) lx = x;
+          if (x > hx) hx = x;
+          if (y < ly) ly = y;
+          if (y > hy) hy = y;
+        }
+        const big = Math.max(hx - lx, hy - ly) >= SMALL_DIM;
         provinces.push({
           key: f.properties.id,
           x: cx / largest.length,
           y: cy / largest.length,
           text: regionNameKo(f.properties.id, f.properties.name),
           visited,
+          big,
         });
       }
     }
 
-    const cityLabels: Label[] = cities.map((c) => {
+    const cityLabels: CityLabel[] = cities.map((c) => {
       const [x, y] = project(c.position[0], c.position[1]);
-      return { key: c.id, x, y, text: cityNameKo(c.country, c.name), visited: false };
+      return { key: c.id, x, y, text: cityNameKo(c.country, c.name) };
     });
 
     return { polys, provinces, cityLabels };
@@ -174,14 +198,36 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
     transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }],
   }));
 
-  // LOD crossfade: provinces show at slight zoom and fade out deep; cities fade
-  // in deep, replacing them.
-  const provinceProps = useAnimatedProps(() => ({
-    opacity: interpolate(scale.value, [1.2, 1.6, 3.0, 4.0], [0, 1, 1, 0], Extrapolation.CLAMP),
+  // big provinces: names from a slight zoom; small/clustered ones only deeper;
+  // city names deepest. (declutters the capital cluster)
+  // each level fades in, then fades OUT as the next (finer) level appears, so
+  // names never stack on top of each other.
+  const bigProps = useAnimatedProps(() => ({
+    opacity: interpolate(scale.value, [1.3, 1.8, 3.4, 4.2], [0, 1, 1, 0], Extrapolation.CLAMP),
+  }));
+  const smallProps = useAnimatedProps(() => ({
+    opacity: interpolate(scale.value, [2.6, 3.3, 4.2, 5.0], [0, 1, 1, 0], Extrapolation.CLAMP),
   }));
   const cityProps = useAnimatedProps(() => ({
-    opacity: interpolate(scale.value, [3.0, 4.0], [0, 1], Extrapolation.CLAMP),
+    opacity: interpolate(scale.value, [3.8, 4.6], [0, 1], Extrapolation.CLAMP),
   }));
+
+  const bigProvinces = provinces.filter((p) => p.big);
+  const smallProvinces = provinces.filter((p) => !p.big);
+
+  const renderName = (l: RegionLabel, fontSize: number) => (
+    <SvgText
+      key={l.key}
+      x={l.x}
+      y={l.y}
+      fontSize={fontSize}
+      fontWeight={l.visited ? '700' : '400'}
+      fill={l.visited ? Palette.bg : Palette.muted}
+      textAnchor="middle"
+      alignmentBaseline="middle">
+      {l.text}
+    </SvgText>
+  );
 
   return (
     <GestureDetector gesture={gesture}>
@@ -197,24 +243,11 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
             />
           ))}
 
-          {/* province names: visible at slight zoom, fade out as you go deeper */}
-          <AnimatedG animatedProps={provinceProps}>
-            {provinces.map((l) => (
-              <SvgText
-                key={l.key}
-                x={l.x}
-                y={l.y}
-                fontSize={8}
-                fontWeight={l.visited ? '700' : '400'}
-                fill={l.visited ? Palette.bg : Palette.muted}
-                textAnchor="middle"
-                alignmentBaseline="middle">
-                {l.text}
-              </SvgText>
-            ))}
+          <AnimatedG animatedProps={bigProps}>{bigProvinces.map((l) => renderName(l, 8))}</AnimatedG>
+          <AnimatedG animatedProps={smallProps}>
+            {smallProvinces.map((l) => renderName(l, 7))}
           </AnimatedG>
 
-          {/* city dots + names: fade in when zoomed deep */}
           <AnimatedG animatedProps={cityProps}>
             {cityLabels.map((l) => (
               <G key={l.key}>

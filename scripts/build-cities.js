@@ -16,8 +16,10 @@ const fs = require('fs');
 const path = require('path');
 
 const DATA = path.join(__dirname, '..', 'src', 'data');
-const TOP_N = 100;
-const KEEP_FCODE = new Set(['PPLC', 'PPLA']); // capital + first-order admin seats
+const TOP_N = 80; // moderate density per country (early stage)
+// capital + 1st/2nd-order admin seats (province capitals + city/county seats);
+// excludes PPLX wards/sections to avoid ward-level noise.
+const KEEP_FCODE = new Set(['PPLC', 'PPLA', 'PPLA2']);
 const COUNTRIES = ['KR', 'JP', 'TH'];
 
 const input = process.argv[2];

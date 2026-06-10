@@ -4,10 +4,10 @@
  * fitSize miscomputes scale under Hermes) and draws each ring as a
  * react-native-svg <Polygon>. Visited regions are gold, unvisited slate.
  *
- * Level-of-detail labels (declutter clustered metros):
- *  - large provinces (경기/강원/충남…) get names at a slight zoom
- *  - small clustered provinces (서울/인천/세종…) only when zoomed more
- *  - city names + dots fade in deepest
+ * Labels never overlap: a greedy collision cull drops lower-priority labels that
+ * would collide (visited regions win), and the two label levels (province ↔ city)
+ * crossfade with a gap so they never show at once. Province names show first;
+ * city names take over when you zoom deep.
  *
  * Pinch to zoom, drag to pan, double-tap to reset (gesture-handler + reanimated).
  * This is the collection payoff screen — confirmed in /plan-design-review.
@@ -38,8 +38,8 @@ const VIEW_H = 460;
 const PAD = 0.94;
 const MIN_SCALE = 1;
 const MAX_SCALE = 8;
-/** projected bbox max-dimension below which a region is "small/clustered" */
-const SMALL_DIM = 24;
+const PROVINCE_FONT = 8;
+const CITY_FONT = 6;
 
 export interface CountryFillMapProps {
   regions: RegionFeature[];
@@ -53,19 +53,13 @@ interface Poly {
   points: string;
   visited: boolean;
 }
-interface RegionLabel {
+interface Label {
   key: string;
   x: number;
   y: number;
   text: string;
   visited: boolean;
-  big: boolean;
-}
-interface CityLabel {
-  key: string;
-  x: number;
-  y: number;
-  text: string;
+  weight: number; // higher = placed first
 }
 
 function outerRings(f: RegionFeature): Position[][] {
@@ -74,13 +68,29 @@ function outerRings(f: RegionFeature): Position[][] {
     : f.geometry.coordinates.map((poly) => poly[0]);
 }
 
+/** Greedy collision cull: place high-priority labels first, drop any that would
+ *  overlap an already-placed one. Non-overlapping in viewBox → at every zoom. */
+function cull(labels: Label[], fontSize: number): Label[] {
+  const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
+  const out: Label[] = [];
+  for (const l of [...labels].sort((a, b) => b.weight - a.weight)) {
+    const w = Math.max(l.text.length * fontSize * 0.58, fontSize);
+    const h = fontSize;
+    const box = { x0: l.x - w / 2 - 1, y0: l.y - h / 2 - 1, x1: l.x + w / 2 + 1, y1: l.y + h / 2 + 1 };
+    const hit = placed.some(
+      (p) => !(box.x1 < p.x0 || box.x0 > p.x1 || box.y1 < p.y0 || box.y0 > p.y1),
+    );
+    if (!hit) {
+      placed.push(box);
+      out.push(l);
+    }
+  }
+  return out;
+}
+
 export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps) {
   const { polys, provinces, cityLabels } = useMemo(() => {
-    const empty = {
-      polys: [] as Poly[],
-      provinces: [] as RegionLabel[],
-      cityLabels: [] as CityLabel[],
-    };
+    const empty = { polys: [] as Poly[], provinces: [] as Label[], cityLabels: [] as Label[] };
     if (regions.length === 0) return empty;
 
     let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
@@ -105,7 +115,7 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
     ];
 
     const polys: Poly[] = [];
-    const provinces: RegionLabel[] = [];
+    const rawProvinces: Label[] = [];
     for (const f of regions) {
       const visited = Boolean(visits[f.properties.id]);
       let largest: [number, number][] = [];
@@ -132,24 +142,30 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
           if (y < ly) ly = y;
           if (y > hy) hy = y;
         }
-        const big = Math.max(hx - lx, hy - ly) >= SMALL_DIM;
-        provinces.push({
+        const area = (hx - lx) * (hy - ly);
+        rawProvinces.push({
           key: f.properties.id,
           x: cx / largest.length,
           y: cy / largest.length,
           text: regionNameKo(f.properties.id, f.properties.name),
           visited,
-          big,
+          // visited regions always win; otherwise bigger regions first
+          weight: (visited ? 1e9 : 0) + area,
         });
       }
     }
 
-    const cityLabels: CityLabel[] = cities.map((c) => {
+    const rawCities: Label[] = cities.map((c, i) => {
       const [x, y] = project(c.position[0], c.position[1]);
-      return { key: c.id, x, y, text: cityNameKo(c.country, c.name) };
+      // input is population-sorted, so earlier = more important
+      return { key: c.id, x, y, text: cityNameKo(c.country, c.name), visited: false, weight: -i };
     });
 
-    return { polys, provinces, cityLabels };
+    return {
+      polys,
+      provinces: cull(rawProvinces, PROVINCE_FONT),
+      cityLabels: cull(rawCities, CITY_FONT),
+    };
   }, [regions, cities, visits]);
 
   const W = Dimensions.get('window').width - 48;
@@ -198,36 +214,13 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
     transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }],
   }));
 
-  // big provinces: names from a slight zoom; small/clustered ones only deeper;
-  // city names deepest. (declutters the capital cluster)
-  // each level fades in, then fades OUT as the next (finer) level appears, so
-  // names never stack on top of each other.
-  const bigProps = useAnimatedProps(() => ({
-    opacity: interpolate(scale.value, [1.3, 1.8, 3.4, 4.2], [0, 1, 1, 0], Extrapolation.CLAMP),
-  }));
-  const smallProps = useAnimatedProps(() => ({
-    opacity: interpolate(scale.value, [2.6, 3.3, 4.2, 5.0], [0, 1, 1, 0], Extrapolation.CLAMP),
+  // sequential crossfade with a gap: provinces fully gone before cities appear.
+  const provinceProps = useAnimatedProps(() => ({
+    opacity: interpolate(scale.value, [1.25, 1.7, 3.0, 3.4], [0, 1, 1, 0], Extrapolation.CLAMP),
   }));
   const cityProps = useAnimatedProps(() => ({
-    opacity: interpolate(scale.value, [3.8, 4.6], [0, 1], Extrapolation.CLAMP),
+    opacity: interpolate(scale.value, [3.5, 3.9], [0, 1], Extrapolation.CLAMP),
   }));
-
-  const bigProvinces = provinces.filter((p) => p.big);
-  const smallProvinces = provinces.filter((p) => !p.big);
-
-  const renderName = (l: RegionLabel, fontSize: number) => (
-    <SvgText
-      key={l.key}
-      x={l.x}
-      y={l.y}
-      fontSize={fontSize}
-      fontWeight={l.visited ? '700' : '400'}
-      fill={l.visited ? Palette.bg : Palette.muted}
-      textAnchor="middle"
-      alignmentBaseline="middle">
-      {l.text}
-    </SvgText>
-  );
 
   return (
     <GestureDetector gesture={gesture}>
@@ -243,9 +236,20 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
             />
           ))}
 
-          <AnimatedG animatedProps={bigProps}>{bigProvinces.map((l) => renderName(l, 8))}</AnimatedG>
-          <AnimatedG animatedProps={smallProps}>
-            {smallProvinces.map((l) => renderName(l, 7))}
+          <AnimatedG animatedProps={provinceProps}>
+            {provinces.map((l) => (
+              <SvgText
+                key={l.key}
+                x={l.x}
+                y={l.y}
+                fontSize={PROVINCE_FONT}
+                fontWeight={l.visited ? '700' : '400'}
+                fill={l.visited ? Palette.bg : Palette.muted}
+                textAnchor="middle"
+                alignmentBaseline="middle">
+                {l.text}
+              </SvgText>
+            ))}
           </AnimatedG>
 
           <AnimatedG animatedProps={cityProps}>
@@ -255,7 +259,7 @@ export function CountryFillMap({ regions, cities, visits }: CountryFillMapProps)
                 <SvgText
                   x={l.x}
                   y={l.y - 3}
-                  fontSize={5}
+                  fontSize={CITY_FONT}
                   fill={Palette.ink}
                   textAnchor="middle"
                   alignmentBaseline="baseline">

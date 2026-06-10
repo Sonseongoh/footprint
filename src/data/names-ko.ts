@@ -42,9 +42,14 @@ export const REGION_KO: Record<string, string> = {
 export const CITY_KO: Record<CountryCode, Record<string, string>> = {
   KR: {
     Seoul: '서울', Busan: '부산', Incheon: '인천', Daegu: '대구', Daejeon: '대전',
-    Gwangju: '광주', Suwon: '수원', Ulsan: '울산', Changwon: '창원', 'Cheongju-si': '청주',
-    Jeonju: '전주', 'Jeju City': '제주', Sejong: '세종', Chuncheon: '춘천', Andong: '안동',
-    Muan: '무안', Hongseong: '홍성',
+    Gwangju: '광주', Suwon: '수원', Ulsan: '울산', 'Goyang-si': '고양', Changwon: '창원',
+    'Cheongju-si': '청주', Jeonju: '전주', Pohang: '포항', 'Jeju City': '제주', Gumi: '구미',
+    Sejong: '세종', Yangsan: '양산', Chuncheon: '춘천', Suncheon: '순천', Yeosu: '여수',
+    Mokpo: '목포', 'Gyeongsan-si': '경산', Gwangyang: '광양', Andong: '안동', Boryeong: '보령',
+    Muan: '무안', Hongseong: '홍성', Sokcho: '속초', Hwasun: '화순', Buyeo: '부여',
+    Yecheon: '예천', Yeongam: '영암', Damyang: '담양', Yeongdong: '영동', Naju: '나주',
+    Jangseong: '장성', Hadong: '하동', Boseong: '보성', Jangheung: '장흥', Hwacheon: '화천',
+    Gyeongju: '경주', Gangneung: '강릉',
   },
   JP: {
     Tokyo: '도쿄', Yokohama: '요코하마', Osaka: '오사카', Nagoya: '나고야', Sapporo: '삿포로',
@@ -54,12 +59,14 @@ export const CITY_KO: Record<CountryCode, Record<string, string>> = {
     Nara: '나라', 'Nara-shi': '나라', Naha: '나하', Matsuyama: '마쓰야마', Takamatsu: '다카마쓰',
     Gifu: '기후', Toyama: '도야마', Nagano: '나가노', Oita: '오이타', Miyazaki: '미야자키',
     Wakayama: '와카야마', Akita: '아키타', Aomori: '아오모리', Morioka: '모리오카',
+    Hakone: '하코네', Kamakura: '가마쿠라', Nikko: '닛코', Takayama: '다카야마', Otaru: '오타루',
   },
   TH: {
     Bangkok: '방콕', 'Chiang Mai': '치앙마이', Phuket: '푸켓', Krabi: '끄라비', 'Chiang Rai': '치앙라이',
     'Surat Thani': '수랏타니', 'Nakhon Ratchasima': '나콘라차시마', 'Chon Buri': '촌부리',
     'Udon Thani': '우돈타니', 'Khon Kaen': '콘깬', Rayong: '라용', 'Hua Hin': '후아힌',
     'Phra Nakhon Si Ayutthaya': '아유타야', Pattaya: '파타야', Songkhla: '송클라',
+    'Ko Samui': '코사무이',
   },
 };
 

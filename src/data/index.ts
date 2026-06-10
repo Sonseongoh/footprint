@@ -23,17 +23,37 @@ export function loadRegions(country: CountryCode): RegionFeature[] {
   }
 }
 
-export function loadCities(country: CountryCode): CityPoint[] {
+/** Curated extra cities (tourist spots GeoNames' admin-seat filter misses, e.g.
+ *  Pattaya). Kept separate so the build script never clobbers them. */
+function loadExtraCities(country: CountryCode): CityPoint[] {
   switch (country) {
-    case 'JP':
-      return require('./cities.jp.json') as CityPoint[];
     case 'KR':
-      return require('./cities.kr.json') as CityPoint[];
+      return require('./cities-extra.kr.json') as CityPoint[];
+    case 'JP':
+      return require('./cities-extra.jp.json') as CityPoint[];
     case 'TH':
-      return require('./cities.th.json') as CityPoint[];
+      return require('./cities-extra.th.json') as CityPoint[];
     default:
       return [];
   }
+}
+
+export function loadCities(country: CountryCode): CityPoint[] {
+  let base: CityPoint[];
+  switch (country) {
+    case 'JP':
+      base = require('./cities.jp.json') as CityPoint[];
+      break;
+    case 'KR':
+      base = require('./cities.kr.json') as CityPoint[];
+      break;
+    case 'TH':
+      base = require('./cities.th.json') as CityPoint[];
+      break;
+    default:
+      base = [];
+  }
+  return [...base, ...loadExtraCities(country)];
 }
 
 /** Countries that actually have data bundled (drives the country picker). */

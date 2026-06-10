@@ -1,0 +1,5 @@
+[
+  { "id": "x-pattaya", "regionId": "TH-20", "country": "TH", "name": "Pattaya", "nameLocal": "Pattaya", "position": [100.8825, 12.9236] },
+  { "id": "x-huahin", "regionId": "TH-77", "country": "TH", "name": "Hua Hin", "nameLocal": "Hua Hin", "position": [99.9577, 12.5684] },
+  { "id": "x-kosamui", "regionId": "TH-84", "country": "TH", "name": "Ko Samui", "nameLocal": "Ko Samui", "position": [100.0136, 9.5120] }
+]

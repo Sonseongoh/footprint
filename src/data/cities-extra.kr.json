@@ -1,0 +1,4 @@
+[
+  { "id": "x-gyeongju", "regionId": "KR-37", "country": "KR", "name": "Gyeongju", "nameLocal": "Gyeongju", "position": [129.2247, 35.8562] },
+  { "id": "x-gangneung", "regionId": "KR-32", "country": "KR", "name": "Gangneung", "nameLocal": "Gangneung", "position": [128.8761, 37.7519] }
+]

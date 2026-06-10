@@ -1,0 +1,7 @@
+[
+  { "id": "x-hakone", "regionId": "JP-14", "country": "JP", "name": "Hakone", "nameLocal": "Hakone", "position": [139.1069, 35.2324] },
+  { "id": "x-kamakura", "regionId": "JP-14", "country": "JP", "name": "Kamakura", "nameLocal": "Kamakura", "position": [139.5469, 35.3192] },
+  { "id": "x-nikko", "regionId": "JP-09", "country": "JP", "name": "Nikko", "nameLocal": "Nikko", "position": [139.6982, 36.7198] },
+  { "id": "x-takayama", "regionId": "JP-21", "country": "JP", "name": "Takayama", "nameLocal": "Takayama", "position": [137.2522, 36.1461] },
+  { "id": "x-otaru", "regionId": "JP-01", "country": "JP", "name": "Otaru", "nameLocal": "Otaru", "position": [140.9947, 43.1907] }
+]

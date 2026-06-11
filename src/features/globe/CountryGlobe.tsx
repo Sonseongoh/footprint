@@ -1,0 +1,295 @@
+/**
+ * Entry globe — a d3-geo orthographic projection of the world rendered with
+ * react-native-svg. Inactive countries are subtle slate; the active collection
+ * countries (KR/JP/TH) glow gold.
+ *
+ * Interactions: drag to spin the globe; tap an active (gold) country to open
+ * its fill map. Tap resolution = invert the projection at the tap point, then
+ * point-in-polygon against the active countries' world outlines.
+ *
+ * Rendering note: react-native-svg under Hermes mis-renders d3 geoPath `d`
+ * strings (same issue as the country fill map), so each ring is drawn as a
+ * <Polygon points=...>. Back-hemisphere clipping is done manually by dropping
+ * ring vertices more than ~90° from the view centre (slightly rough at the
+ * horizon — fine for a stylized globe).
+ */
+import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
+import { geoOrthographic } from 'd3-geo';
+import type { Feature, Geometry, MultiPolygon, Polygon as GeoPolygon, Position } from 'geojson';
+import { useMemo, useState } from 'react';
+import { Dimensions } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
+import Svg, {
+  Circle,
+  Defs,
+  Polygon,
+  RadialGradient,
+  Stop,
+  Text as SvgText,
+} from 'react-native-svg';
+
+import { Palette } from '@/constants/footprint-theme';
+import { countryNameKo } from '@/data/names-ko';
+import type { CountryCode } from '@/types/domain';
+
+type CountryFeature = Feature<Geometry, { iso: string; nameKo: string }>;
+const world = require('@/data/world.json') as { features: CountryFeature[] };
+
+const VIEW = 320;
+const R = 150;
+const ACTIVE = new Set<string>(['KR', 'JP', 'TH'] satisfies CountryCode[]);
+/** initial view centre, roughly between Korea/Japan/Thailand */
+const INITIAL_CENTER: [number, number] = [115, 22];
+/** degrees of rotation per pixel of drag */
+const DRAG_SENS = 0.35;
+
+const DEG = Math.PI / 180;
+
+/** great-circle angular distance (degrees) between two [lng,lat] points */
+function angle(a: [number, number], b: [number, number]): number {
+  const [l1, p1] = [a[0] * DEG, a[1] * DEG];
+  const [l2, p2] = [b[0] * DEG, b[1] * DEG];
+  const s = Math.sin(p1) * Math.sin(p2) + Math.cos(p1) * Math.cos(p2) * Math.cos(l2 - l1);
+  return Math.acos(Math.min(1, Math.max(-1, s))) / DEG;
+}
+
+function ringsOf(geom: Geometry): Position[][] {
+  if (geom.type === 'Polygon') return [geom.coordinates[0]];
+  if (geom.type === 'MultiPolygon') return geom.coordinates.map((p) => p[0]);
+  return [];
+}
+
+interface Shape {
+  key: string;
+  points: string;
+  active: boolean;
+}
+interface GlobeLabel {
+  key: string;
+  x: number;
+  y: number;
+  text: string;
+  active: boolean;
+  weight: number;
+}
+
+const LABEL_FONT = 7;
+/** zoom level from which country names appear */
+const LABEL_ZOOM = 1.6;
+
+/** greedy collision cull (same approach as the country fill map) */
+function cullLabels(labels: GlobeLabel[]): GlobeLabel[] {
+  const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
+  const out: GlobeLabel[] = [];
+  for (const l of [...labels].sort((a, b) => b.weight - a.weight)) {
+    const w = Math.max(l.text.length * LABEL_FONT * 0.62, LABEL_FONT);
+    const h = LABEL_FONT;
+    const box = { x0: l.x - w / 2 - 1, y0: l.y - h / 2 - 1, x1: l.x + w / 2 + 1, y1: l.y + h / 2 + 1 };
+    const hit = placed.some(
+      (p) => !(box.x1 < p.x0 || box.x0 > p.x1 || box.y1 < p.y0 || box.y0 > p.y1),
+    );
+    if (!hit) {
+      placed.push(box);
+      out.push(l);
+    }
+  }
+  return out;
+}
+
+export interface CountryGlobeProps {
+  /** called when the user taps an active country */
+  onSelectCountry?: (country: CountryCode) => void;
+}
+
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
+
+export function CountryGlobe({ onSelectCountry }: CountryGlobeProps) {
+  // view centre in [lng, lat]; drag moves it. zoom scales the projection.
+  const [center, setCenter] = useState<[number, number]>(INITIAL_CENTER);
+  const [dragStart, setDragStart] = useState<[number, number]>(INITIAL_CENTER);
+  const [zoom, setZoom] = useState(1);
+  const [pinchStart, setPinchStart] = useState(1);
+
+  const projection = useMemo(
+    () =>
+      geoOrthographic()
+        .scale(R * zoom)
+        .translate([VIEW / 2, VIEW / 2])
+        .rotate([-center[0], -center[1]]),
+    [center, zoom],
+  );
+
+  const { shapes, labels } = useMemo(() => {
+    const shapes: Shape[] = [];
+    const rawLabels: GlobeLabel[] = [];
+    world.features.forEach((f, fi) => {
+      const active = ACTIVE.has(f.properties.iso);
+      let best: { sx: number; sy: number; n: number; area: number } | null = null;
+      ringsOf(f.geometry).forEach((ring, ri) => {
+        const pts: string[] = [];
+        let sx = 0, sy = 0;
+        let lx = Infinity, ly = Infinity, hx = -Infinity, hy = -Infinity;
+        for (const coord of ring) {
+          const lnglat = coord as [number, number];
+          if (angle(lnglat, center) > 89) continue; // manual back-hemisphere clip
+          const xy = projection(lnglat);
+          if (xy) {
+            pts.push(`${xy[0].toFixed(1)},${xy[1].toFixed(1)}`);
+            sx += xy[0]; sy += xy[1];
+            if (xy[0] < lx) lx = xy[0];
+            if (xy[0] > hx) hx = xy[0];
+            if (xy[1] < ly) ly = xy[1];
+            if (xy[1] > hy) hy = xy[1];
+          }
+        }
+        if (pts.length > 2) {
+          // fi in the key: several territories share an empty iso code
+          shapes.push({ key: `${fi}-${ri}`, points: pts.join(' '), active });
+          const area = (hx - lx) * (hy - ly);
+          if (!best || area > best.area) best = { sx, sy, n: pts.length, area };
+        }
+      });
+      if (best && f.properties.nameKo) {
+        const b = best as { sx: number; sy: number; n: number; area: number };
+        rawLabels.push({
+          key: `l${fi}`,
+          x: b.sx / b.n,
+          y: b.sy / b.n,
+          // everyday short names (중국, 북한…), not formal official ones
+          text: countryNameKo(f.properties.iso, f.properties.nameKo),
+          active,
+          weight: (active ? 1e9 : 0) + b.area,
+        });
+      }
+    });
+    return { shapes, labels: cullLabels(rawLabels) };
+  }, [projection, center]);
+
+  const size = Dimensions.get('window').width - 48;
+  const toView = size / VIEW;
+
+  // ── drag to rotate (slower when zoomed in) ───────────────────────────────
+  function applyDrag(dx: number, dy: number) {
+    const sens = DRAG_SENS / zoom;
+    const lng = dragStart[0] - dx * sens;
+    const lat = Math.min(75, Math.max(-75, dragStart[1] + dy * sens));
+    setCenter([lng, lat]);
+  }
+  function commitDrag() {
+    setCenter((c) => {
+      setDragStart(c);
+      return c;
+    });
+  }
+
+  const pan = Gesture.Pan()
+    .maxPointers(1)
+    .minDistance(2)
+    .onUpdate((e) => {
+      runOnJS(applyDrag)(e.translationX, e.translationY);
+    })
+    .onEnd(() => {
+      runOnJS(commitDrag)();
+    });
+
+  // ── pinch to zoom ─────────────────────────────────────────────────────────
+  function applyPinch(s: number) {
+    setZoom(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pinchStart * s)));
+  }
+  function commitPinch() {
+    setZoom((z) => {
+      setPinchStart(z);
+      return z;
+    });
+  }
+
+  const pinch = Gesture.Pinch()
+    .onUpdate((e) => {
+      runOnJS(applyPinch)(e.scale);
+    })
+    .onEnd(() => {
+      runOnJS(commitPinch)();
+    });
+
+  // ── tap an active country ─────────────────────────────────────────────────
+  function handleTap(x: number, y: number) {
+    if (!onSelectCountry) return;
+    const inverted = projection.invert?.([x / toView, y / toView]);
+    if (!inverted) return;
+    // ignore taps outside the globe disk
+    if (angle(inverted as [number, number], center) > 90) return;
+    for (const f of world.features) {
+      if (!ACTIVE.has(f.properties.iso)) continue;
+      if (
+        booleanPointInPolygon(
+          inverted as [number, number],
+          f as Feature<GeoPolygon | MultiPolygon>,
+        )
+      ) {
+        onSelectCountry(f.properties.iso as CountryCode);
+        return;
+      }
+    }
+  }
+
+  const tap = Gesture.Tap()
+    .maxDuration(220)
+    .onEnd((e) => {
+      runOnJS(handleTap)(e.x, e.y);
+    });
+
+  const gesture = Gesture.Exclusive(Gesture.Simultaneous(pinch, pan), tap);
+
+  return (
+    <GestureDetector gesture={gesture}>
+      <Svg width={size} height={size} viewBox={`0 0 ${VIEW} ${VIEW}`}>
+        {/* sea: teal highlight (upper-left) fading into deep navy at the limb —
+            gives the globe its sphere feel (approved design direction) */}
+        <Defs>
+          <RadialGradient id="sea" cx="38%" cy="32%" r="75%">
+            <Stop offset="0%" stopColor={Palette.ocean1} />
+            <Stop offset="55%" stopColor="#163A55" />
+            <Stop offset="100%" stopColor={Palette.ocean2} />
+          </RadialGradient>
+        </Defs>
+        {/* ocean disk (scales with zoom) */}
+        <Circle cx={VIEW / 2} cy={VIEW / 2} r={R * zoom} fill="url(#sea)" />
+        {shapes.map((s) => (
+          <Polygon
+            key={s.key}
+            points={s.points}
+            fill={s.active ? Palette.gold : Palette.surface}
+            stroke={Palette.bg}
+            strokeWidth={0.3}
+          />
+        ))}
+        {/* country names from LABEL_ZOOM (active countries first, collision-culled) */}
+        {zoom >= LABEL_ZOOM &&
+          labels.map((l) => (
+            <SvgText
+              key={l.key}
+              x={l.x}
+              y={l.y}
+              fontSize={LABEL_FONT}
+              fontWeight={l.active ? '700' : '400'}
+              fill={l.active ? Palette.bg : Palette.muted}
+              textAnchor="middle"
+              alignmentBaseline="middle">
+              {l.text}
+            </SvgText>
+          ))}
+        {/* rim */}
+        <Circle
+          cx={VIEW / 2}
+          cy={VIEW / 2}
+          r={R * zoom}
+          fill="none"
+          stroke={Palette.surfaceLine}
+          strokeWidth={1}
+        />
+      </Svg>
+    </GestureDetector>
+  );
+}

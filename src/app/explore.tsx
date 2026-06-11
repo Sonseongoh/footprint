@@ -4,8 +4,8 @@
  * before any backend sync. A country selector switches between bundled
  * countries (KR / JP in v1).
  */
-import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -18,6 +18,13 @@ import { COUNTRIES, type CountryCode, type Visit } from '@/types/domain';
 export default function MapScreen() {
   const countries = useMemo(() => availableCountries(), []);
   const [country, setCountry] = useState<CountryCode>(countries[0] ?? 'JP');
+
+  // globe tap → /explore?country=XX
+  const params = useLocalSearchParams<{ country?: string }>();
+  useEffect(() => {
+    const c = params.country as CountryCode | undefined;
+    if (c && countries.includes(c)) setCountry(c);
+  }, [params.country, countries]);
   const regions = useMemo(() => loadRegions(country), [country]);
   const cities = useMemo(() => loadCities(country), [country]);
   const [visits, setVisits] = useState<Record<string, Visit>>({});

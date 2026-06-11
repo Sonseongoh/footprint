@@ -70,6 +70,24 @@ export const CITY_KO: Record<CountryCode, Record<string, string>> = {
   },
 };
 
+/**
+ * Common short country names for the globe. Natural Earth's NAME_KO uses formal
+ * official names (중화인민공화국, 조선민주주의인민공화국…) — maps use the everyday
+ * short form. Keyed by ISO A2; countries not listed keep their NAME_KO.
+ */
+export const COUNTRY_KO_SHORT: Record<string, string> = {
+  KR: '한국', KP: '북한', CN: '중국', TW: '대만', US: '미국', GB: '영국',
+  RU: '러시아', DE: '독일', FR: '프랑스', ES: '스페인', AE: '아랍에미리트',
+  CZ: '체코', DO: '도미니카', LA: '라오스', BN: '브루나이', VA: '바티칸',
+  MK: '북마케도니아', BA: '보스니아', CD: '콩고민주공화국', CG: '콩고',
+  CF: '중앙아프리카공화국', TZ: '탄자니아', VE: '베네수엘라', BO: '볼리비아',
+  IR: '이란', SY: '시리아', EG: '이집트', ZA: '남아공', SA: '사우디아라비아',
+};
+
+export function countryNameKo(iso: string, nameKoFromData: string): string {
+  return COUNTRY_KO_SHORT[iso] ?? nameKoFromData;
+}
+
 export function regionNameKo(regionId: string, fallbackEnglish: string): string {
   return REGION_KO[regionId] ?? fallbackEnglish;
 }

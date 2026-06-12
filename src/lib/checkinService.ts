@@ -18,8 +18,16 @@
 import * as Crypto from 'expo-crypto';
 
 import { applyLocalCheckin, applyLocalCityVisit } from '@/lib/localVisits';
+import { uploadCheckinPhoto } from '@/lib/photoUpload';
 import { supabase } from '@/lib/supabase';
-import { enqueue, markFailed, markSynced, pending, type QueuedCheckin } from '@/lib/syncQueue';
+import {
+  enqueue,
+  markFailed,
+  markSynced,
+  pending,
+  type QueuedCheckin,
+  type QueueRow,
+} from '@/lib/syncQueue';
 import type { CountryCode, VisitSource } from '@/types/domain';
 
 export interface RecordCheckinInput {
@@ -65,12 +73,23 @@ export async function recordCheckin(input: RecordCheckinInput): Promise<string> 
   return id;
 }
 
-/** Upsert one queued check-in. Idempotent on id (ignoreDuplicates). */
-async function syncOne(row: QueuedCheckin): Promise<void> {
+/**
+ * Sync one queued check-in: upload its photo (if any) to Storage first, then
+ * upsert the event row with photo_path. Idempotent on id — merge-upsert is safe
+ * because the visits aggregate trigger fires on INSERT only, so a retried row
+ * updates photo_path without double-counting the re-visit.
+ */
+async function syncOne(row: QueueRow, userId: string): Promise<void> {
+  let photoPath: string | null = null;
+  if (row.photoUri) {
+    photoPath = await uploadCheckinPhoto(userId, row.id, row.photoUri);
+  }
   const { error } = await supabase.from('visit_events').upsert(
     {
       id: row.id,
-      user_id: row.userId,
+      // authoritative session user — queue rows recorded before the backend was
+      // configured carry 'local-only' and would otherwise never sync (RLS)
+      user_id: userId,
       region_id: row.regionId,
       city_id: row.cityId,
       city_name: row.cityName,
@@ -81,9 +100,9 @@ async function syncOne(row: QueuedCheckin): Promise<void> {
       lng: row.lng,
       accuracy_m: row.accuracyM,
       note: row.note,
-      photo_path: null,
+      photo_path: photoPath,
     },
-    { onConflict: 'id', ignoreDuplicates: true },
+    { onConflict: 'id' },
   );
   if (error) throw error;
 }
@@ -91,11 +110,18 @@ async function syncOne(row: QueuedCheckin): Promise<void> {
 /** Drain the offline queue. Safe to call repeatedly (e.g. on reconnect). */
 export async function flushQueue(): Promise<{ synced: number; failed: number }> {
   const rows = await pending();
+  if (rows.length === 0) return { synced: 0, failed: 0 };
+
+  // can't sync without a session (offline / backend not configured yet)
+  const { data } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+  const userId = data.session?.user?.id;
+  if (!userId) return { synced: 0, failed: rows.length };
+
   let synced = 0;
   let failed = 0;
   for (const row of rows) {
     try {
-      await syncOne(row);
+      await syncOne(row, userId);
       await markSynced(row.id);
       synced += 1;
     } catch (err) {

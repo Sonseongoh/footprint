@@ -20,6 +20,7 @@ import { createClient, type SupportedStorage } from '@supabase/supabase-js';
 import * as aesjs from 'aes-js';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
@@ -83,7 +84,9 @@ export const supabase = createClient(
   supabaseAnonKey || 'placeholder-anon-key',
   {
     auth: {
-      storage: new LargeSecureStore(),
+      // web (the public /share page) has no SecureStore — use the default
+      // localStorage persistence there; native keeps the encrypted store.
+      ...(Platform.OS === 'web' ? {} : { storage: new LargeSecureStore() }),
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,

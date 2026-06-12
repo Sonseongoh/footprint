@@ -43,7 +43,7 @@ export default function GlobeScreen() {
         </View>
 
         {firstRun ? (
-          <Pressable style={styles.onboardCard} onPress={() => router.push('/')}>
+          <Pressable style={styles.onboardCard} onPress={() => router.push('/(tabs)/index')}>
             <Text style={styles.onboardTitle}>첫 발자국을 남겨보세요 ✦</Text>
             <Text style={styles.onboardBody}>
               여행지에서 <Text style={styles.onboardEm}>지금 여기 체크인</Text>을 누르면{'\n'}

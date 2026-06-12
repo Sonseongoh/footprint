@@ -6,13 +6,14 @@
  */
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
 import { availableCountries, loadCities, loadRegions } from '@/data';
 import { CountryFillMap } from '@/features/map/CountryFillMap';
 import { getLocalVisitsByRegion, getVisitedCityIds } from '@/lib/localVisits';
+import { ensureSharePage, shareUrlFor } from '@/lib/share';
 import { COUNTRIES, type CountryCode, type Visit } from '@/types/domain';
 
 export default function MapScreen() {
@@ -46,16 +47,33 @@ export default function MapScreen() {
   // city collection is the headline metric (도시 단위 깊이)
   const filledCities = cities.filter((c) => visitedCities.has(c.id)).length;
 
+  async function handleShare() {
+    try {
+      const slug = await ensureSharePage(country);
+      const url = shareUrlFor(slug);
+      await Share.share({
+        message: `내 ${COUNTRIES[country].nameLocal} 발자국 지도 🗺✨ ${url}`,
+      });
+    } catch (e) {
+      Alert.alert('공유 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해주세요');
+    }
+  }
+
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
           <Text style={styles.title}>{COUNTRIES[country].nameLocal}</Text>
-          <View style={styles.stat}>
-            <Text style={styles.statNum}>
-              {filledCities} / {cities.length}
-            </Text>
-            <Text style={styles.statLabel}>채운 도시</Text>
+          <View style={styles.headerRight}>
+            <View style={styles.stat}>
+              <Text style={styles.statNum}>
+                {filledCities} / {cities.length}
+              </Text>
+              <Text style={styles.statLabel}>채운 도시</Text>
+            </View>
+            <Pressable style={styles.shareBtn} onPress={handleShare}>
+              <Text style={styles.shareBtnText}>공유</Text>
+            </Pressable>
           </View>
         </View>
 
@@ -115,7 +133,15 @@ const styles = StyleSheet.create({
   safe: { flex: 1, padding: Space.lg },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   title: { color: Palette.ink, fontSize: 24, fontWeight: '800' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: Space.md },
   stat: { alignItems: 'flex-end' },
+  shareBtn: {
+    backgroundColor: Palette.gold,
+    borderRadius: 12,
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm,
+  },
+  shareBtnText: { color: Palette.bg, fontSize: 14, fontWeight: '700' },
   statNum: { color: Palette.gold, fontSize: 20, fontWeight: '800' },
   statLabel: { color: Palette.muted, fontSize: 13 },
   tabs: { flexDirection: 'row', gap: Space.sm, marginTop: Space.md },

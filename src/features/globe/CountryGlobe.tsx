@@ -16,7 +16,7 @@
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import { geoOrthographic } from 'd3-geo';
 import type { Feature, Geometry, MultiPolygon, Polygon as GeoPolygon, Position } from 'geojson';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
@@ -170,13 +170,47 @@ export function CountryGlobe({ onSelectCountry }: CountryGlobeProps) {
   const size = Dimensions.get('window').width - 48;
   const toView = size / VIEW;
 
-  // ── drag to rotate (slower when zoomed in) ───────────────────────────────
+  // ── drag to rotate (slower when zoomed in), with release inertia ─────────
+  const spinTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function stopSpin() {
+    if (spinTimer.current) {
+      clearInterval(spinTimer.current);
+      spinTimer.current = null;
+    }
+  }
+  useEffect(() => stopSpin, []);
+
   function applyDrag(dx: number, dy: number) {
     const sens = DRAG_SENS / zoom;
     const lng = dragStart[0] - dx * sens;
     const lat = Math.min(75, Math.max(-75, dragStart[1] + dy * sens));
     setCenter([lng, lat]);
   }
+
+  /** decaying spin after release; velocity in px/s from the pan gesture */
+  function startSpin(vx: number, vy: number) {
+    stopSpin();
+    const sens = DRAG_SENS / zoom;
+    // px/s → deg per 16ms frame
+    let vLng = (-vx * sens) / 62.5;
+    let vLat = (vy * sens) / 62.5;
+    if (Math.abs(vLng) < 0.05 && Math.abs(vLat) < 0.05) {
+      commitDrag();
+      return;
+    }
+    spinTimer.current = setInterval(() => {
+      vLng *= 0.94;
+      vLat *= 0.94;
+      if (Math.abs(vLng) < 0.02 && Math.abs(vLat) < 0.02) {
+        stopSpin();
+        commitDrag();
+        return;
+      }
+      setCenter(([lng, lat]) => [lng + vLng, Math.min(75, Math.max(-75, lat + vLat))]);
+    }, 16);
+  }
+
   function commitDrag() {
     setCenter((c) => {
       setDragStart(c);
@@ -184,14 +218,23 @@ export function CountryGlobe({ onSelectCountry }: CountryGlobeProps) {
     });
   }
 
+  /** grabbing the globe mid-spin: stop and re-anchor the drag at the current view */
+  function beginDrag() {
+    stopSpin();
+    commitDrag();
+  }
+
   const pan = Gesture.Pan()
     .maxPointers(1)
     .minDistance(2)
+    .onBegin(() => {
+      runOnJS(beginDrag)();
+    })
     .onUpdate((e) => {
       runOnJS(applyDrag)(e.translationX, e.translationY);
     })
-    .onEnd(() => {
-      runOnJS(commitDrag)();
+    .onEnd((e) => {
+      runOnJS(startSpin)(e.velocityX, e.velocityY);
     });
 
   // ── pinch to zoom ─────────────────────────────────────────────────────────

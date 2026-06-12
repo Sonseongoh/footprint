@@ -48,6 +48,13 @@ export async function applyLocalCityVisit(
   );
 }
 
+/** True if the user has made any check-in at all (drives first-run onboarding). */
+export async function hasAnyVisit(): Promise<boolean> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) as n FROM visits_local');
+  return (row?.n ?? 0) > 0;
+}
+
 /** Set of visited city ids for a country. */
 export async function getVisitedCityIds(country: CountryCode): Promise<Set<string>> {
   const db = await getDb();

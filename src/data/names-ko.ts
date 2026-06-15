@@ -97,17 +97,6 @@ export const CITY_KO: Record<CountryCode, Record<string, string>> = {
     'Krathum Baen': '끄라툼밴', Saraburi: '사라부리', Trang: '뜨랑', Sattahip: '사따힙',
     Kanchanaburi: '깐짜나부리', 'Nong Khai': '농카이', 'Samut Sakhon': '사뭇사콘',
     Phitsanulok: '핏사눌록', Prachantakham: '쁘라짠타캄',
-    // Bangkok 구(區) — 음역
-    'Bang Khae': '방캐', 'Sai Mai': '사이마이', Watthana: '왓타나', 'Khlong Sam Wa': '클롱삼와',
-    'Bang Khun Thian': '방쿤티안', 'Lat Krabang': '랏끄라방', Chatuchak: '짜뚜짝', 'Chom Thong': '쫌통',
-    'Nong Chok': '농쪽', 'Nong Khaem': '농캠', 'Bang Kapi': '방까삐', 'Bueng Kum': '븡꿈',
-    'Din Daeng': '딘댕', 'Bang Sue': '방쓰', 'Lat Phrao': '랏프라오', 'Phasi Charoen': '파시짜른',
-    'Thon Buri': '톤부리', 'Bangkok Noi': '방콕너이', 'Thung Khru': '퉁크루', 'Suan Luang': '수안루앙',
-    'Wang Thonglang': '왕통랑', 'Lak Si': '락씨', 'Khlong Toei': '클롱떠이', Dusit: '두씻',
-    'Taling Chan': '탈링짠', 'Bang Bon': '방본', 'Bang Rak': '방락', 'Bang Na': '방나',
-    'Bang Phlat': '방플랏', 'Phra Khanong': '프라카농', 'Saphan Sung': '사판숭', 'Khan Na Yao': '칸나야오',
-    'Rat Burana': '랏부라나', Sathon: '사톤', 'Yan Nawa': '얀나와', 'Huai Khwang': '후아이쾅',
-    'Khlong San': '클롱산', Ratchathewi: '랏차테위', 'Bangkok Yai': '방콕야이', 'Phaya Thai': '파야타이',
   },
 };
 

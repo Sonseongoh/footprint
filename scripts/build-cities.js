@@ -77,6 +77,7 @@ for (const l of lines) {
     geonameid: c[0],
     name: c[2],
     nameLocal: c[1],
+    fcode: c[7],
     lat: parseFloat(c[4]),
     lng: parseFloat(c[5]),
     pop: parseInt(c[14] || '0', 10),
@@ -93,10 +94,14 @@ for (const cc of COUNTRIES) {
   const seen = new Set();
   for (const city of ranked) {
     if (out.length >= TOP_N || seen.has(city.name)) continue;
+    const regionId = resolveRegion([city.lng, city.lat], regions);
+    // Bangkok province (TH-10) only contains its 50 khет (districts), all PPLA2 —
+    // drop them, keep only Bangkok itself, so the list is travel cities not wards.
+    if (cc === 'TH' && regionId === 'TH-10' && city.fcode !== 'PPLC') continue;
     seen.add(city.name);
     out.push({
       id: `geon-${city.geonameid}`,
-      regionId: resolveRegion([city.lng, city.lat], regions),
+      regionId,
       country: cc,
       name: city.name,
       nameLocal: city.nameLocal,

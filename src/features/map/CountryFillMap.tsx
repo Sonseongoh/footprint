@@ -12,8 +12,8 @@
  * with a gap as you zoom. Pinch zoom / drag pan / double-tap reset.
  */
 import type { Position } from 'geojson';
-import { useMemo } from 'react';
-import { Dimensions } from 'react-native';
+import { useEffect, useMemo, useRef } from 'react';
+import { Dimensions, Platform, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   Extrapolation,
@@ -39,7 +39,6 @@ const MIN_SCALE = 1;
 const MAX_SCALE = 8;
 const PROVINCE_FONT = 8;
 const CITY_FONT = 6;
-const MIN_FILL = 0.32; // any visit shows at least this much gold
 
 export interface CountryFillMapProps {
   regions: RegionFeature[];
@@ -78,16 +77,6 @@ function outerRings(f: RegionFeature): Position[][] {
     : f.geometry.coordinates.map((poly) => poly[0]);
 }
 
-/** linear blend between two #rrggbb colors */
-function mix(a: string, b: string, t: number): string {
-  const ai = parseInt(a.slice(1), 16);
-  const bi = parseInt(b.slice(1), 16);
-  const r = Math.round(((ai >> 16) & 255) + (((bi >> 16) & 255) - ((ai >> 16) & 255)) * t);
-  const g = Math.round(((ai >> 8) & 255) + (((bi >> 8) & 255) - ((ai >> 8) & 255)) * t);
-  const bl = Math.round((ai & 255) + ((bi & 255) - (ai & 255)) * t);
-  return `#${((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1)}`;
-}
-
 function cull<T extends { x: number; y: number; text: string; weight: number }>(
   labels: T[],
   fontSize: number,
@@ -118,20 +107,19 @@ export function CountryFillMap({ regions, cities, visits, visitedCityIds }: Coun
     };
     if (regions.length === 0) return empty;
 
-    // per-region city totals + visited counts → depth ratio
-    const total: Record<string, number> = {};
+    // a region counts as visited if any of its cities was checked into
     const visitedCount: Record<string, number> = {};
     for (const c of cities) {
-      total[c.regionId] = (total[c.regionId] ?? 0) + 1;
       if (visitedCityIds.has(c.id)) {
         visitedCount[c.regionId] = (visitedCount[c.regionId] ?? 0) + 1;
       }
     }
+    // visited region = full bright gold. Depth ("얼마나 깊게 다녔나") is carried
+    // by the city labels (visited bright vs unvisited dim), not by dimming the
+    // fill — a faintly-filled region reads as "barely visited", which felt weak.
     const fillFor = (regionId: string): string => {
       const visited = Boolean(visits[regionId]) || (visitedCount[regionId] ?? 0) > 0;
-      if (!visited) return Palette.slate;
-      const ratio = total[regionId] ? (visitedCount[regionId] ?? 0) / total[regionId] : 0;
-      return mix(Palette.slate, Palette.gold, Math.max(MIN_FILL, Math.min(1, ratio)));
+      return visited ? Palette.gold : Palette.slate;
     };
 
     let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
@@ -261,6 +249,58 @@ export function CountryFillMap({ regions, cities, visits, visitedCityIds }: Coun
     transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }],
   }));
 
+  // ── web: gesture-handler doesn't take mouse/wheel, so drive the same shared
+  //    values directly from DOM wheel-zoom + drag-pan (used by the share page) ──
+  const isWeb = Platform.OS === 'web';
+  const webRef = useRef<View | null>(null);
+  useEffect(() => {
+    if (!isWeb) return;
+    const el = webRef.current as unknown as HTMLElement | null;
+    if (!el) return;
+    el.style.cursor = 'grab';
+    el.style.touchAction = 'none';
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const next = scale.value * Math.exp(-e.deltaY * 0.0015);
+      scale.value = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
+      savedScale.value = scale.value;
+    };
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+    const onDown = (e: MouseEvent) => {
+      dragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      el.style.cursor = 'grabbing';
+    };
+    const onMove = (e: MouseEvent) => {
+      if (!dragging) return;
+      tx.value += e.clientX - lastX;
+      ty.value += e.clientY - lastY;
+      savedTx.value = tx.value;
+      savedTy.value = ty.value;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    };
+    const onUp = () => {
+      dragging = false;
+      el.style.cursor = 'grab';
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    el.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isWeb, scale, savedScale, tx, ty, savedTx, savedTy]);
+
   const provinceProps = useAnimatedProps(() => ({
     opacity: interpolate(scale.value, [1.25, 1.7, 3.0, 3.4], [0, 1, 1, 0], Extrapolation.CLAMP),
   }));
@@ -268,13 +308,12 @@ export function CountryFillMap({ regions, cities, visits, visitedCityIds }: Coun
     opacity: interpolate(scale.value, [3.5, 3.9], [0, 1], Extrapolation.CLAMP),
   }));
 
-  return (
-    <GestureDetector gesture={gesture}>
-      <Animated.View style={[{ flex: 1, alignItems: 'center', justifyContent: 'center' }, animStyle]}>
-        <Svg width={W} height={H} viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}>
-          {polys.map((p) => (
-            <Polygon key={p.key} points={p.points} fill={p.fill} stroke={Palette.bg} strokeWidth={0.5} />
-          ))}
+  const inner = (
+    <Animated.View style={[{ flex: 1, alignItems: 'center', justifyContent: 'center' }, animStyle]}>
+      <Svg width={W} height={H} viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}>
+        {polys.map((p) => (
+          <Polygon key={p.key} points={p.points} fill={p.fill} stroke={Palette.bg} strokeWidth={0.5} />
+        ))}
 
           <AnimatedG animatedProps={provinceProps}>
             {provinces.map((l) => (
@@ -309,9 +348,18 @@ export function CountryFillMap({ regions, cities, visits, visitedCityIds }: Coun
                 {l.text}
               </SvgText>
             ))}
-          </AnimatedG>
-        </Svg>
-      </Animated.View>
-    </GestureDetector>
+        </AnimatedG>
+      </Svg>
+    </Animated.View>
   );
+
+  if (isWeb) {
+    // ref'd container receives the DOM wheel/drag listeners
+    return (
+      <View ref={webRef} style={{ flex: 1, overflow: 'hidden' }}>
+        {inner}
+      </View>
+    );
+  }
+  return <GestureDetector gesture={gesture}>{inner}</GestureDetector>;
 }

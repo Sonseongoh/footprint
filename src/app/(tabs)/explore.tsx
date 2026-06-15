@@ -13,7 +13,7 @@ import { Palette, Space } from '@/constants/footprint-theme';
 import { availableCountries, loadCities, loadRegions } from '@/data';
 import { CountryFillMap } from '@/features/map/CountryFillMap';
 import { getLocalVisitsByRegion, getVisitedCityIds } from '@/lib/localVisits';
-import { ensureSharePage, shareUrlFor } from '@/lib/share';
+import { ensureUserShare, userShareUrlFor } from '@/lib/share';
 import { COUNTRIES, type CountryCode, type Visit } from '@/types/domain';
 
 export default function MapScreen() {
@@ -49,11 +49,10 @@ export default function MapScreen() {
 
   async function handleShare() {
     try {
-      const slug = await ensureSharePage(country);
-      const url = shareUrlFor(slug);
-      await Share.share({
-        message: `내 ${COUNTRIES[country].nameLocal} 발자국 지도 🗺✨ ${url}`,
-      });
+      // one link per user → page shows all visited countries as tabs
+      const slug = await ensureUserShare();
+      const url = userShareUrlFor(slug);
+      await Share.share({ message: `내 발자국 지도 🗺✨ ${url}` });
     } catch (e) {
       Alert.alert('공유 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해주세요');
     }

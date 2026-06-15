@@ -1,33 +1,38 @@
 /**
- * Public share page — /share/[slug]. Anyone with the link (no app, no login)
- * sees the owner's country fill map: regions visited + counts ONLY (RLS keeps
- * notes/GPS/photos private). Renders on web via react-native-web; the same
- * route also works in-app.
+ * Public user share page — /u/[slug]. One link per user; shows every country
+ * they've checked into as tabs (visited countries only). Region + city fill is
+ * read via public RLS; notes/GPS/photos stay private.
  */
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
 import { loadCities, loadRegions } from '@/data';
 import { CountryFillMap } from '@/features/map/CountryFillMap';
-import { getPublicShare, type PublicShareData } from '@/lib/share';
-import { COUNTRIES, type Visit } from '@/types/domain';
+import { getPublicUserShare, type UserShareData } from '@/lib/share';
+import { COUNTRIES, type CountryCode, type Visit } from '@/types/domain';
 
-export default function PublicShareScreen() {
+export default function PublicUserShareScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
-  const [data, setData] = useState<PublicShareData | null>(null);
+  const [data, setData] = useState<UserShareData | null>(null);
   const [state, setState] = useState<'loading' | 'ok' | 'notfound'>('loading');
+  const [country, setCountry] = useState<CountryCode | null>(null);
 
   useEffect(() => {
     let active = true;
     if (!slug) return;
-    getPublicShare(String(slug))
+    getPublicUserShare(String(slug))
       .then((d) => {
         if (!active) return;
+        if (!d || d.countries.length === 0) {
+          setState('notfound');
+          return;
+        }
         setData(d);
-        setState(d ? 'ok' : 'notfound');
+        setCountry(d.countries[0]);
+        setState('ok');
       })
       .catch(() => active && setState('notfound'));
     return () => {
@@ -35,26 +40,27 @@ export default function PublicShareScreen() {
     };
   }, [slug]);
 
-  const regions = useMemo(() => (data ? loadRegions(data.country) : []), [data]);
-  const cities = useMemo(() => (data ? loadCities(data.country) : []), [data]);
+  const regions = useMemo(() => (country ? loadRegions(country) : []), [country]);
+  const cities = useMemo(() => (country ? loadCities(country) : []), [country]);
 
-  // adapt the public counts to the map's visits shape (fill only — no city depth)
+  const share = country && data ? data.byCountry[country] : undefined;
+
   const visits = useMemo(() => {
     const out: Record<string, Visit> = {};
-    if (!data) return out;
-    for (const [regionId, count] of Object.entries(data.regions)) {
+    if (!share || !country) return out;
+    for (const [regionId, count] of Object.entries(share.regions)) {
       out[regionId] = {
         id: regionId,
         userId: 'public',
         regionId,
-        country: data.country,
+        country,
         firstVisitedAt: '',
         lastVisitedAt: '',
         visitCount: count,
       };
     }
     return out;
-  }, [data]);
+  }, [share, country]);
 
   if (state === 'loading') {
     return (
@@ -64,7 +70,7 @@ export default function PublicShareScreen() {
     );
   }
 
-  if (state === 'notfound' || !data) {
+  if (state === 'notfound' || !data || !country) {
     return (
       <View style={[styles.root, styles.center]}>
         <Text style={styles.title}>페이지를 찾을 수 없어요</Text>
@@ -73,7 +79,7 @@ export default function PublicShareScreen() {
     );
   }
 
-  const filledCities = cities.filter((c) => data.visitedCityIds.has(c.id)).length;
+  const filledCities = share ? cities.filter((c) => share.visitedCityIds.has(c.id)).length : 0;
 
   return (
     <View style={styles.root}>
@@ -83,9 +89,24 @@ export default function PublicShareScreen() {
           <Text style={styles.brand}>footprint</Text>
         </View>
 
-        <Text style={styles.heading}>{COUNTRIES[data.country].nameLocal} 발자국 지도</Text>
+        {data.countries.length > 1 && (
+          <View style={styles.tabs}>
+            {data.countries.map((c) => (
+              <Pressable
+                key={c}
+                onPress={() => setCountry(c)}
+                style={[styles.tab, c === country && styles.tabActive]}>
+                <Text style={[styles.tabText, c === country && styles.tabTextActive]}>
+                  {COUNTRIES[c].nameLocal}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        <Text style={styles.heading}>{COUNTRIES[country].nameLocal} 발자국 지도</Text>
         <Text style={styles.sub}>
-          채운 도시 {filledCities} / {cities.length} · 총 체크인 {data.totalVisits}회
+          채운 도시 {filledCities} / {cities.length} · 총 체크인 {share?.totalVisits ?? 0}회
         </Text>
 
         <View style={styles.mapWrap}>
@@ -93,7 +114,7 @@ export default function PublicShareScreen() {
             regions={regions}
             cities={cities}
             visits={visits}
-            visitedCityIds={data.visitedCityIds}
+            visitedCityIds={share?.visitedCityIds ?? new Set()}
           />
         </View>
 
@@ -110,6 +131,18 @@ const styles = StyleSheet.create({
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: Space.sm, marginTop: Space.sm },
   dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: Palette.gold },
   brand: { color: Palette.ink, fontSize: 18, fontWeight: '700', letterSpacing: -0.5 },
+  tabs: { flexDirection: 'row', gap: Space.sm, marginTop: Space.lg },
+  tab: {
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm,
+    borderRadius: 999,
+    backgroundColor: Palette.bgElevated,
+    borderWidth: 1,
+    borderColor: Palette.surfaceLine,
+  },
+  tabActive: { backgroundColor: Palette.gold, borderColor: Palette.gold },
+  tabText: { color: Palette.muted, fontSize: 14, fontWeight: '600' },
+  tabTextActive: { color: Palette.bg },
   heading: { color: Palette.ink, fontSize: 26, fontWeight: '800', marginTop: Space.lg },
   sub: { color: Palette.gold, fontSize: 15, fontWeight: '600', marginTop: 4 },
   mapWrap: { flex: 1, marginVertical: Space.lg, overflow: 'hidden', borderRadius: 16 },

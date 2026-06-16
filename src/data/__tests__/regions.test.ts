@@ -46,9 +46,10 @@ describe('bundled data', () => {
 
 describe('resolveCheckin (multi-country)', () => {
   it('detects the country, region and city from a GPS point', () => {
+    // KR collects by 시 (city areas), so Seoul resolves to its 시 unit (no city point)
     const seoul = resolveCheckin([126.978, 37.5665], 20);
-    expect(seoul).toMatchObject({ ok: true, country: 'KR', regionId: 'KR-11' });
-    expect(seoul.city?.name).toBe('Seoul');
+    expect(seoul).toMatchObject({ ok: true, country: 'KR', regionId: 'krc-서울' });
+    expect(seoul.city).toBeNull();
 
     const tokyo = resolveCheckin([139.6917, 35.6895], 20);
     expect(tokyo).toMatchObject({ ok: true, country: 'JP', regionId: 'JP-13' });

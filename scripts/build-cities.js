@@ -16,10 +16,16 @@ const fs = require('fs');
 const path = require('path');
 
 const DATA = path.join(__dirname, '..', 'src', 'data');
-const TOP_N = 80; // moderate density per country (early stage)
-// capital + 1st/2nd-order admin seats (province capitals + city/county seats);
-// excludes PPLX wards/sections to avoid ward-level noise.
-const KEEP_FCODE = new Set(['PPLC', 'PPLA', 'PPLA2']);
+const TOP_N = 80; // top cities per country by population
+// Population-representative: include plain populated places (PPL) so big non-seat
+// cities (성남·부천·Pattaya…) are kept, not just admin seats. PPLX sections are
+// already excluded by GeoNames' cities15000 (>15k pop) feature set.
+const KEEP_FCODE = new Set(['PPLC', 'PPLA', 'PPLA2', 'PPL']);
+// Single-city metropolises: keep ONLY the metropolis itself, drop its internal
+// districts (서울 구 / 도쿄 특별구 / 방콕 khet) so one check-in there = one city.
+const MONOCITY_REGIONS = new Set([
+  'KR-11', 'KR-21', 'KR-22', 'KR-23', 'KR-24', 'KR-25', 'KR-26', 'KR-29', 'JP-13', 'TH-10',
+]);
 const COUNTRIES = ['KR', 'JP', 'TH'];
 
 const input = process.argv[2];
@@ -55,6 +61,12 @@ function centroid(geom) {
   for (const poly of polys) for (const [x, y] of poly[0]) { sx += x; sy += y; n++; }
   return [sx / n, sy / n];
 }
+function km(a, b) {
+  const R = 6371, d = Math.PI / 180;
+  const dla = (b[1] - a[1]) * d, dlo = (b[0] - a[0]) * d;
+  const x = Math.sin(dla / 2) ** 2 + Math.cos(a[1] * d) * Math.cos(b[1] * d) * Math.sin(dlo / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
 function resolveRegion(pt, regions) {
   for (const f of regions) if (pointInGeom(pt, f.geometry)) return f.properties.id;
   let best = null, bestD = Infinity;
@@ -73,10 +85,16 @@ for (const l of lines) {
   if (c.length < 15) continue;
   if (!byCountry[c[8]]) continue;
   if (c[6] !== 'P' || !KEEP_FCODE.has(c[7])) continue;
+  // Korean name straight from GeoNames alternatenames (Hangul), suffix stripped.
+  const han = /[가-힣]/;
+  const ko = (c[3] || '').split(',').find((a) => han.test(a));
   byCountry[c[8]].push({
     geonameid: c[0],
     name: c[2],
     nameLocal: c[1],
+    // strip only a trailing administrative suffix: " 시"/" 현" (JP style, space-led)
+    // or kanji 市/県 — never bare 시/부/도 (parts of names like 의정부).
+    nameKo: ko ? ko.replace(/(\s+[시현]|[市県])$/u, '').trim() : null,
     fcode: c[7],
     lat: parseFloat(c[4]),
     lng: parseFloat(c[5]),
@@ -92,12 +110,18 @@ for (const cc of COUNTRIES) {
   const ranked = byCountry[cc].sort((a, b) => b.pop - a.pop);
   const out = [];
   const seen = new Set();
+  const monocityUsed = new Set();
   for (const city of ranked) {
     if (out.length >= TOP_N || seen.has(city.name)) continue;
     const regionId = resolveRegion([city.lng, city.lat], regions);
-    // Bangkok province (TH-10) only contains its 50 khет (districts), all PPLA2 —
-    // drop them, keep only Bangkok itself, so the list is travel cities not wards.
-    if (cc === 'TH' && regionId === 'TH-10' && city.fcode !== 'PPLC') continue;
+    // metropolis regions: keep only the metropolis itself (its districts would
+    // otherwise flood the list as separate "cities").
+    if (MONOCITY_REGIONS.has(regionId)) {
+      if (monocityUsed.has(regionId)) continue;
+      monocityUsed.add(regionId);
+    }
+    // drop near-duplicates (GeoNames variant romanizations at ~same coords)
+    if (out.some((o) => km(o.position, [city.lng, city.lat]) < 8)) continue;
     seen.add(city.name);
     out.push({
       id: `geon-${city.geonameid}`,
@@ -105,6 +129,7 @@ for (const cc of COUNTRIES) {
       country: cc,
       name: city.name,
       nameLocal: city.nameLocal,
+      ...(city.nameKo ? { nameKo: city.nameKo } : {}),
       position: [city.lng, city.lat],
     });
   }

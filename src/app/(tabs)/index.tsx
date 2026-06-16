@@ -20,8 +20,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
-import { loadRegions, resolveCheckin, type ResolvedCheckin } from '@/data';
-import { cityNameKo, regionNameKo } from '@/data/names-ko';
+import { loadFillUnits, resolveCheckin, type ResolvedCheckin } from '@/data';
+import { cityDisplayKo, regionNameKo } from '@/data/names-ko';
 import { recordCheckin } from '@/lib/checkinService';
 import { pickFromLibrary, takePhoto } from '@/lib/photo';
 import { ensureAnonymousSession } from '@/lib/supabase';
@@ -30,8 +30,11 @@ import { COUNTRIES, type Position } from '@/types/domain';
 type Phase = 'idle' | 'locating' | 'result' | 'denied' | 'done';
 
 const TEST_POINTS: { label: string; pos: Position }[] = [
-  { label: '서울로 테스트', pos: [126.978, 37.5665] },
-  { label: '도쿄로 테스트', pos: [139.6917, 35.6895] },
+  { label: '서울', pos: [126.978, 37.5665] },
+  { label: '수원', pos: [127.0089, 37.2911] },
+  { label: '부산', pos: [129.075, 35.1796] },
+  { label: '도쿄', pos: [139.6917, 35.6895] },
+  { label: '치앙마이', pos: [98.9853, 18.7883] },
 ];
 
 export default function CheckinScreen() {
@@ -56,9 +59,10 @@ export default function CheckinScreen() {
 
   function regionDisplayName(country: ResolvedCheckin['country'], regionId: string | null) {
     if (!country || !regionId) return '';
-    const en =
-      loadRegions(country).find((r) => r.properties.id === regionId)?.properties.name ?? regionId;
-    return regionNameKo(regionId, en);
+    const unit = loadFillUnits(country).find((r) => r.properties.id === regionId);
+    const en = unit?.properties.name ?? regionId;
+    // KR fill units (시) already carry a Korean name; JP/TH go through the overlay
+    return country === 'KR' ? en : regionNameKo(regionId, en);
   }
 
   function runResolve(pos: Position, accuracyM: number | null) {
@@ -164,12 +168,17 @@ export default function CheckinScreen() {
                   <Text style={styles.okBadge}>
                     ✓ {result.country ? COUNTRIES[result.country].nameLocal : ''} 인증됨
                   </Text>
+                  {/* KR: the matched unit IS the 시 (no city point) → show it big */}
                   <Text style={styles.city}>
-                    {result.city && result.country
-                      ? cityNameKo(result.country, result.city.name)
-                      : '도시'}
+                    {result.city
+                      ? cityDisplayKo(result.city)
+                      : regionDisplayName(result.country, result.regionId) || '도시'}
                   </Text>
-                  <Text style={styles.region}>{regionDisplayName(result.country, result.regionId)}</Text>
+                  {result.city && (
+                    <Text style={styles.region}>
+                      {regionDisplayName(result.country, result.regionId)}
+                    </Text>
+                  )}
                   <TextInput
                     style={styles.input}
                     placeholder="한 줄 메모 (선택)"
@@ -327,7 +336,7 @@ const styles = StyleSheet.create({
   primaryText: { color: Palette.bg, fontSize: 16, fontWeight: '700' },
   secondary: { paddingVertical: Space.sm, alignItems: 'center' },
   secondaryText: { color: Palette.muted, fontSize: 15 },
-  devRow: { flexDirection: 'row', justifyContent: 'center', gap: Space.lg },
+  devRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: Space.lg },
   devBtn: { paddingVertical: Space.sm, alignItems: 'center' },
   devText: { color: Palette.surfaceLine, fontSize: 13 },
 });

@@ -12,7 +12,7 @@
  * with a gap as you zoom. Pinch zoom / drag pan / double-tap reset.
  */
 import type { Position } from 'geojson';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions, Platform, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -21,12 +21,12 @@ import Animated, {
   useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
-  withTiming,
 } from 'react-native-reanimated';
-import Svg, { G, Polygon, Text as SvgText } from 'react-native-svg';
+import { scheduleOnRN } from 'react-native-worklets';
+import Svg, { Circle, G, Polygon, Text as SvgText } from 'react-native-svg';
 
 import { Palette } from '@/constants/footprint-theme';
-import { cityNameKo, regionNameKo } from '@/data/names-ko';
+import { cityDisplayKo, regionNameKo } from '@/data/names-ko';
 import type { RegionFeature } from '@/lib/geo';
 import type { CityPoint, Visit } from '@/types/domain';
 
@@ -39,6 +39,17 @@ const MIN_SCALE = 1;
 const MAX_SCALE = 8;
 const PROVINCE_FONT = 8;
 const CITY_FONT = 6;
+const FILL_FLOOR = 0.45; // gold intensity for 1 visited city (→ 1.0 when all done)
+
+/** linear blend between two #rrggbb colors */
+function mix(a: string, b: string, t: number): string {
+  const ai = parseInt(a.slice(1), 16);
+  const bi = parseInt(b.slice(1), 16);
+  const r = Math.round(((ai >> 16) & 255) + (((bi >> 16) & 255) - ((ai >> 16) & 255)) * t);
+  const g = Math.round(((ai >> 8) & 255) + (((bi >> 8) & 255) - ((ai >> 8) & 255)) * t);
+  const bl = Math.round((ai & 255) + ((bi & 255) - (ai & 255)) * t);
+  return `#${((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1)}`;
+}
 
 export interface CountryFillMapProps {
   regions: RegionFeature[];
@@ -47,6 +58,8 @@ export interface CountryFillMapProps {
   visits: Record<string, Visit>;
   /** ids of cities that have been checked into */
   visitedCityIds: Set<string>;
+  /** backdrop polygons drawn under the fill units (KR: 도, for 군 coverage) */
+  background?: RegionFeature[];
 }
 
 interface Poly {
@@ -80,13 +93,17 @@ function outerRings(f: RegionFeature): Position[][] {
 function cull<T extends { x: number; y: number; text: string; weight: number }>(
   labels: T[],
   fontSize: number,
+  zoom: number,
 ): T[] {
   const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
   const out: T[] = [];
+  // labels stay constant on-screen size (font is counter-scaled), so their
+  // footprint in map space shrinks as you zoom in → more labels fit → small
+  // cities (안양·군포…) reveal progressively.
   for (const l of [...labels].sort((a, b) => b.weight - a.weight)) {
-    const w = Math.max(l.text.length * fontSize * 0.58, fontSize);
-    const h = fontSize;
-    const box = { x0: l.x - w / 2 - 1, y0: l.y - h / 2 - 1, x1: l.x + w / 2 + 1, y1: l.y + h / 2 + 1 };
+    const w = Math.max(l.text.length * fontSize * 0.58, fontSize) / zoom;
+    const h = fontSize / zoom;
+    const box = { x0: l.x - w / 2 - 0.5, y0: l.y - h / 2 - 0.5, x1: l.x + w / 2 + 0.5, y1: l.y + h / 2 + 0.5 };
     const hit = placed.some(
       (p) => !(box.x1 < p.x0 || box.x0 > p.x1 || box.y1 < p.y0 || box.y0 > p.y1),
     );
@@ -98,32 +115,48 @@ function cull<T extends { x: number; y: number; text: string; weight: number }>(
   return out;
 }
 
-export function CountryFillMap({ regions, cities, visits, visitedCityIds }: CountryFillMapProps) {
-  const { polys, provinces, cityLabels } = useMemo(() => {
+export function CountryFillMap({
+  regions,
+  cities,
+  visits,
+  visitedCityIds,
+  background = [],
+}: CountryFillMapProps) {
+  // settled zoom (updated on gesture end) — re-culls labels so more reveal as you
+  // zoom in. Kept as state (not the animated value) so the cull memo can read it.
+  const [zoomLevel, setZoomLevel] = useState(1);
+
+  const { polys, bgPolys, rawProvinces, rawCities } = useMemo(() => {
     const empty = {
       polys: [] as Poly[],
-      provinces: [] as ProvinceLabel[],
-      cityLabels: [] as CityLabel[],
+      bgPolys: [] as Poly[],
+      rawProvinces: [] as ProvinceLabel[],
+      rawCities: [] as CityLabel[],
     };
     if (regions.length === 0) return empty;
 
-    // a region counts as visited if any of its cities was checked into
+    // per-region city totals + visited counts → depth-proportional fill
+    const total: Record<string, number> = {};
     const visitedCount: Record<string, number> = {};
     for (const c of cities) {
+      total[c.regionId] = (total[c.regionId] ?? 0) + 1;
       if (visitedCityIds.has(c.id)) {
         visitedCount[c.regionId] = (visitedCount[c.regionId] ?? 0) + 1;
       }
     }
-    // visited region = full bright gold. Depth ("얼마나 깊게 다녔나") is carried
-    // by the city labels (visited bright vs unvisited dim), not by dimming the
-    // fill — a faintly-filled region reads as "barely visited", which felt weak.
+    // depth-proportional: a region's gold deepens with the share of its cities
+    // visited. A clear floor so one visit already reads as "been here", reaching
+    // full gold only when the whole region is collected.
     const fillFor = (regionId: string): string => {
       const visited = Boolean(visits[regionId]) || (visitedCount[regionId] ?? 0) > 0;
-      return visited ? Palette.gold : Palette.slate;
+      if (!visited) return Palette.slate;
+      const ratio = total[regionId] ? (visitedCount[regionId] ?? 0) / total[regionId] : 1;
+      return mix(Palette.slate, Palette.gold, Math.min(1, FILL_FLOOR + (1 - FILL_FLOOR) * ratio));
     };
 
+    // bounds span both the fill units and the backdrop so they align
     let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
-    for (const f of regions) {
+    for (const f of [...background, ...regions]) {
       for (const ring of outerRings(f)) {
         for (const [lng, lat] of ring) {
           if (lng < minLng) minLng = lng;
@@ -142,6 +175,18 @@ export function CountryFillMap({ regions, cities, visits, visitedCityIds }: Coun
       (lng - minLng) * s + offX,
       (maxLat - lat) * s + offY,
     ];
+    const bgPolys: Poly[] = [];
+    for (const f of background) {
+      outerRings(f).forEach((ring, i) => {
+        const pts: string[] = [];
+        for (const [lng, lat] of ring) {
+          const [x, y] = project(lng, lat);
+          pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+        }
+        // darker than the fill units so unvisited 시 read as distinct tiles
+        if (pts.length > 2) bgPolys.push({ key: `bg-${f.properties.id}-${i}`, points: pts.join(' '), fill: Palette.bgElevated });
+      });
+    }
 
     const polys: Poly[] = [];
     const rawProvinces: ProvinceLabel[] = [];
@@ -190,21 +235,27 @@ export function CountryFillMap({ regions, cities, visits, visitedCityIds }: Coun
         key: c.id,
         x,
         y,
-        text: cityNameKo(c.country, c.name),
+        text: cityDisplayKo(c),
         visited,
         weight: (visited ? 1e9 : 0) - i,
       };
     });
 
-    return {
-      polys,
-      provinces: cull(rawProvinces, PROVINCE_FONT),
-      cityLabels: cull(rawCities, CITY_FONT),
-    };
-  }, [regions, cities, visits, visitedCityIds]);
+    return { polys, bgPolys, rawProvinces, rawCities };
+  }, [regions, cities, visits, visitedCityIds, background]);
+
+  // re-cull on settled zoom only (cheap) — projection above doesn't re-run
+  const provinces = useMemo(
+    () => cull(rawProvinces, PROVINCE_FONT, zoomLevel),
+    [rawProvinces, zoomLevel],
+  );
+  const cityLabels = useMemo(() => cull(rawCities, CITY_FONT, zoomLevel), [rawCities, zoomLevel]);
 
   const W = Dimensions.get('window').width - 48;
   const H = W * (VIEW_H / VIEW_W);
+  // Render the SVG at the settled zoom's resolution (capped) so it's crisp, not a
+  // stretched bitmap. The view transform then only scales the live pinch delta.
+  const renderScale = Math.min(Math.max(zoomLevel, 1), 3);
 
   // ── gestures ─────────────────────────────────────────────────────────────
   const scale = useSharedValue(1);
@@ -220,6 +271,7 @@ export function CountryFillMap({ regions, cities, visits, visitedCityIds }: Coun
     })
     .onEnd(() => {
       savedScale.value = scale.value;
+      scheduleOnRN(setZoomLevel, scale.value);
     });
   const pan = Gesture.Pan()
     .maxPointers(1)
@@ -232,21 +284,16 @@ export function CountryFillMap({ regions, cities, visits, visitedCityIds }: Coun
       savedTx.value = tx.value;
       savedTy.value = ty.value;
     });
-  const doubleTap = Gesture.Tap()
-    .numberOfTaps(2)
-    .maxDuration(250)
-    .onEnd(() => {
-      scale.value = withTiming(1);
-      tx.value = withTiming(0);
-      ty.value = withTiming(0);
-      savedScale.value = 1;
-      savedTx.value = 0;
-      savedTy.value = 0;
-    });
-  const gesture = Gesture.Simultaneous(pinch, pan, doubleTap);
+  const gesture = Gesture.Simultaneous(pinch, pan);
 
+  // the SVG is pre-rendered at renderScale; the transform applies only the
+  // remaining ratio so on-screen size stays scale.value (crisp at settled zoom)
   const animStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }],
+    transform: [
+      { translateX: tx.value },
+      { translateY: ty.value },
+      { scale: scale.value / renderScale },
+    ],
   }));
 
   // ── web: gesture-handler doesn't take mouse/wheel, so drive the same shared
@@ -265,6 +312,7 @@ export function CountryFillMap({ regions, cities, visits, visitedCityIds }: Coun
       const next = scale.value * Math.exp(-e.deltaY * 0.0015);
       scale.value = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
       savedScale.value = scale.value;
+      setZoomLevel(scale.value);
     };
     let dragging = false;
     let lastX = 0;
@@ -301,19 +349,42 @@ export function CountryFillMap({ regions, cities, visits, visitedCityIds }: Coun
     };
   }, [isWeb, scale, savedScale, tx, ty, savedTx, savedTy]);
 
+  // when there's no separate city layer (KR: the 시 ARE the units), region labels
+  // must stay visible when zoomed in — don't fade them out into nothing.
+  const hasCityLayer = cityLabels.length > 0;
+  // fontSize is counter-scaled (÷ zoom) so labels keep a constant on-screen size
+  // while the map scales — that's what lets more labels reveal as you zoom in.
   const provinceProps = useAnimatedProps(() => ({
-    opacity: interpolate(scale.value, [1.25, 1.7, 3.0, 3.4], [0, 1, 1, 0], Extrapolation.CLAMP),
+    opacity: hasCityLayer
+      ? interpolate(scale.value, [1.25, 1.7, 3.0, 3.4], [0, 1, 1, 0], Extrapolation.CLAMP)
+      : interpolate(scale.value, [1.25, 1.7], [0, 1], Extrapolation.CLAMP),
   }));
   const cityProps = useAnimatedProps(() => ({
     opacity: interpolate(scale.value, [3.5, 3.9], [0, 1], Extrapolation.CLAMP),
   }));
+  // label fonts counter-scaled to the settled zoom → constant on-screen size
+  const provinceFont = PROVINCE_FONT / zoomLevel;
+  const cityFont = CITY_FONT / zoomLevel;
 
   const inner = (
     <Animated.View style={[{ flex: 1, alignItems: 'center', justifyContent: 'center' }, animStyle]}>
-      <Svg width={W} height={H} viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}>
+      <Svg width={W * renderScale} height={H * renderScale} viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}>
+          {/* backdrop (KR: 도) for full coverage under the fill units */}
+          {bgPolys.map((p) => (
+            <Polygon key={p.key} points={p.points} fill={p.fill} stroke={Palette.bg} strokeWidth={0.6} />
+          ))}
+
         {polys.map((p) => (
-          <Polygon key={p.key} points={p.points} fill={p.fill} stroke={Palette.bg} strokeWidth={0.5} />
+          <Polygon key={p.key} points={p.points} fill={p.fill} stroke={Palette.surfaceLine} strokeWidth={0.4} />
         ))}
+
+          {/* visited city pins — always visible so you can see WHICH city you've
+              collected even when the region is only partly filled */}
+          {cityLabels
+            .filter((l) => l.visited)
+            .map((l) => (
+              <Circle key={`pin-${l.key}`} cx={l.x} cy={l.y} r={1.5} fill={Palette.gold} stroke={Palette.bg} strokeWidth={0.4} />
+            ))}
 
           <AnimatedG animatedProps={provinceProps}>
             {provinces.map((l) => (
@@ -321,7 +392,7 @@ export function CountryFillMap({ regions, cities, visits, visitedCityIds }: Coun
                 key={l.key}
                 x={l.x}
                 y={l.y}
-                fontSize={PROVINCE_FONT}
+                fontSize={provinceFont}
                 fontWeight={l.visited ? '700' : '400'}
                 fill={l.visited ? Palette.bg : Palette.muted}
                 textAnchor="middle"
@@ -339,7 +410,7 @@ export function CountryFillMap({ regions, cities, visits, visitedCityIds }: Coun
                 key={l.key}
                 x={l.x}
                 y={l.y}
-                fontSize={CITY_FONT}
+                fontSize={cityFont}
                 fontWeight={l.visited ? '700' : '400'}
                 fill={l.visited ? Palette.ink : Palette.muted}
                 fillOpacity={l.visited ? 1 : 0.5}

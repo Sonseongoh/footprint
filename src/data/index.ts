@@ -23,6 +23,24 @@ export function loadRegions(country: CountryCode): RegionFeature[] {
   }
 }
 
+/**
+ * Fill/collection units per country. Korea collects by 시 (city areas — 광역시
+ * whole, 군 excluded); Japan/Thailand collect by their admin-1 prefecture/province.
+ */
+export function loadFillUnits(country: CountryCode): RegionFeature[] {
+  if (country === 'KR') return (require('./cityareas.kr.json') as RegionCollection).features;
+  return loadRegions(country);
+}
+
+/**
+ * Backdrop polygons drawn under the fill units for full coverage (so rural 군
+ * areas aren't holes). Korea: the 17 시·도; elsewhere none (fill units already
+ * cover everything).
+ */
+export function loadBackground(country: CountryCode): RegionFeature[] {
+  return country === 'KR' ? loadRegions('KR') : [];
+}
+
 /** Curated extra cities (tourist spots GeoNames' admin-seat filter misses, e.g.
  *  Pattaya). Kept separate so the build script never clobbers them. */
 function loadExtraCities(country: CountryCode): CityPoint[] {
@@ -78,11 +96,13 @@ export function resolveCheckin(
   if (!pos) return { ok: false, reason: 'no-fix', regionId: null, city: null, country: null };
   let sawLowAccuracy = false;
   for (const country of availableCountries()) {
+    // match against the collection unit: KR → 시 areas (no separate city points),
+    // JP/TH → admin-1 regions + city points
     const result = verifyCheckin({
       pos,
       accuracyM,
-      regions: loadRegions(country),
-      cities: loadCities(country),
+      regions: loadFillUnits(country),
+      cities: country === 'KR' ? [] : loadCities(country),
       maxAccuracyM,
     });
     if (result.ok) return { ...result, country };

@@ -60,6 +60,9 @@ export const CITY_KO: Record<CountryCode, Record<string, string>> = {
     Yecheon: '예천', Yeongam: '영암', Damyang: '담양', Yeongdong: '영동', Naju: '나주',
     Jangseong: '장성', Hadong: '하동', Boseong: '보성', Jangheung: '장흥', Hwacheon: '화천',
     Gyeongju: '경주', Gangneung: '강릉',
+    // GeoNames ascii names that lack a Hangul alt (old/Japanese-style romanizations)
+    Seogwipo: '서귀포', 'Donghae City': '동해', Nangen: '남원', Eisen: '영천', Ungsang: '웅상',
+    Sinhyeon: '신현', Hwado: '화도', Kwangyang: '광양', Naeso: '내서',
   },
   JP: {
     Tokyo: '도쿄', Yokohama: '요코하마', Osaka: '오사카', Nagoya: '나고야', Sapporo: '삿포로',
@@ -81,6 +84,7 @@ export const CITY_KO: Record<CountryCode, Record<string, string>> = {
     Tokorozawa: '도코로자와', Asahikawa: '아사히카와', Maebashi: '마에바시', Kita: '기타', Kochi: '고치',
     Koriyama: '고리야마', Kasugai: '가스가이', Yokkaichi: '욧카이치', Akashi: '아카시', Kurume: '구루메',
     Fukushima: '후쿠시마', Ibaraki: '이바라키', Ichihara: '이치하라',
+    Aihara: '아이하라', Shinagawa: '시나가와', Minato: '미나토', Mito: '미토', 'Fukui-shi': '후쿠이',
   },
   TH: {
     Bangkok: '방콕', 'Chiang Mai': '치앙마이', Phuket: '푸켓', Krabi: '끄라비', 'Chiang Rai': '치앙라이',
@@ -97,6 +101,14 @@ export const CITY_KO: Record<CountryCode, Record<string, string>> = {
     'Krathum Baen': '끄라툼밴', Saraburi: '사라부리', Trang: '뜨랑', Sattahip: '사따힙',
     Kanchanaburi: '깐짜나부리', 'Nong Khai': '농카이', 'Samut Sakhon': '사뭇사콘',
     Phitsanulok: '핏사눌록', Prachantakham: '쁘라짠타캄',
+    'Kamphaeng Phet': '깜팽펫', Chaiyaphum: '차이야품', 'Lop Buri': '롭부리', Kalasin: '깔라신',
+    'Suphan Buri': '수판부리', 'Maha Sarakham': '마하사라캄', Phetchabun: '펫차분',
+    Chachoengsao: '차층사오', Narathiwat: '나라티왓', Surin: '수린', Phetchaburi: '펫차부리',
+    'Si Sa Ket': '시사껫', Pattani: '빠따니', Phatthalung: '팟탈룽', Lamphun: '람푼',
+    Mukdahan: '묵다한', 'Roi Et': '로이엣', 'Cha-am': '차암', 'Pak Chong': '빡총',
+    'Pran Buri': '쁘란부리', 'Mae Sot': '매솟', 'Bang Lamung': '방라뭉', Sadao: '사다오',
+    'Su-ngai Kolok': '수응아이꼴록', 'Chum Phae': '춤패', Klaeng: '끌랭',
+    'Phra Phutthabat': '프라풋타밧', 'Tha Maka': '타마까', 'Tha Yang': '타양', 'Nong Khae': '농캐',
   },
 };
 
@@ -124,4 +136,17 @@ export function regionNameKo(regionId: string, fallbackEnglish: string): string 
 
 export function cityNameKo(country: CountryCode, englishName: string): string {
   return CITY_KO[country]?.[englishName] ?? englishName;
+}
+
+/**
+ * Korean display name for a city. The curated overlay wins (it's hand-checked —
+ * GeoNames' auto Korean can be an old/wrong alt, e.g. Seoul → "경성"), then the
+ * bundled GeoNames Korean name, then the English name.
+ */
+export function cityDisplayKo(city: {
+  country: CountryCode;
+  name: string;
+  nameKo?: string;
+}): string {
+  return CITY_KO[city.country]?.[city.name] ?? city.nameKo ?? city.name;
 }

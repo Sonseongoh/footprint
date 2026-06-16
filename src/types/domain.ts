@@ -36,6 +36,8 @@ export interface CityPoint {
   country: CountryCode;
   name: string;
   nameLocal: string;
+  /** Korean name from GeoNames (when available); else fall back to the overlay */
+  nameKo?: string;
   position: Position;
 }
 

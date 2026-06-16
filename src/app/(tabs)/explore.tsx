@@ -10,7 +10,7 @@ import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
-import { availableCountries, loadCities, loadRegions } from '@/data';
+import { availableCountries, loadBackground, loadCities, loadFillUnits } from '@/data';
 import { CountryFillMap } from '@/features/map/CountryFillMap';
 import { getLocalVisitsByRegion, getVisitedCityIds } from '@/lib/localVisits';
 import { ensureUserShare, userShareUrlFor } from '@/lib/share';
@@ -26,8 +26,10 @@ export default function MapScreen() {
     const c = params.country as CountryCode | undefined;
     if (c && countries.includes(c)) setCountry(c);
   }, [params.country, countries]);
-  const regions = useMemo(() => loadRegions(country), [country]);
-  const cities = useMemo(() => loadCities(country), [country]);
+  // KR fills by 시 (city areas) over a 도 backdrop; JP/TH fill by admin-1 + city points
+  const regions = useMemo(() => loadFillUnits(country), [country]);
+  const background = useMemo(() => loadBackground(country), [country]);
+  const cities = useMemo(() => (country === 'KR' ? [] : loadCities(country)), [country]);
   const [visits, setVisits] = useState<Record<string, Visit>>({});
   const [visitedCities, setVisitedCities] = useState<Set<string>>(new Set());
 
@@ -44,8 +46,13 @@ export default function MapScreen() {
     }, [country]),
   );
 
-  // city collection is the headline metric (도시 단위 깊이)
-  const filledCities = cities.filter((c) => visitedCities.has(c.id)).length;
+  // headline metric = collected cities. KR collects 시 (fill units); JP/TH the
+  // city points within their prefecture/province.
+  const filledCount =
+    country === 'KR'
+      ? regions.filter((r) => visits[r.properties.id]).length
+      : cities.filter((c) => visitedCities.has(c.id)).length;
+  const totalCount = country === 'KR' ? regions.length : cities.length;
 
   async function handleShare() {
     try {
@@ -66,7 +73,7 @@ export default function MapScreen() {
           <View style={styles.headerRight}>
             <View style={styles.stat}>
               <Text style={styles.statNum}>
-                {filledCities} / {cities.length}
+                {filledCount} / {totalCount}
               </Text>
               <Text style={styles.statLabel}>채운 도시</Text>
             </View>
@@ -97,13 +104,14 @@ export default function MapScreen() {
             cities={cities}
             visits={visits}
             visitedCityIds={visitedCities}
+            background={background}
           />
         </View>
 
         <View style={styles.legend}>
           <Legend color={Palette.gold} label="방문 도시" />
           <Legend color={Palette.slate} label="더 채울 곳" outline />
-          {filledCities === 0 && (
+          {filledCount === 0 && (
             <Text style={styles.emptyHint}>체크인하면 도시가 채워집니다.</Text>
           )}
         </View>

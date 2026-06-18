@@ -8,10 +8,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,6 +20,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
@@ -49,6 +52,77 @@ function daysLeft(expiresAt: string): number {
   return Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 86_400_000));
 }
 
+/** Full-screen photo viewer with pinch-to-zoom + pan; double-tap or ✕ to reset/close. */
+function PhotoViewer({ url, onClose }: { url: string | null; onClose: () => void }) {
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+  const tx = useSharedValue(0);
+  const ty = useSharedValue(0);
+  const savedTx = useSharedValue(0);
+  const savedTy = useSharedValue(0);
+
+  // reset transform each time a new photo opens
+  useEffect(() => {
+    scale.value = 1;
+    savedScale.value = 1;
+    tx.value = 0;
+    ty.value = 0;
+    savedTx.value = 0;
+    savedTy.value = 0;
+  }, [url, scale, savedScale, tx, ty, savedTx, savedTy]);
+
+  const pinch = Gesture.Pinch()
+    .onUpdate((e) => {
+      scale.value = Math.min(Math.max(savedScale.value * e.scale, 1), 6);
+    })
+    .onEnd(() => {
+      savedScale.value = scale.value;
+    });
+  const pan = Gesture.Pan()
+    .onUpdate((e) => {
+      tx.value = savedTx.value + e.translationX;
+      ty.value = savedTy.value + e.translationY;
+    })
+    .onEnd(() => {
+      savedTx.value = tx.value;
+      savedTy.value = ty.value;
+    });
+  const doubleTap = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd(() => {
+      scale.value = 1;
+      savedScale.value = 1;
+      tx.value = 0;
+      ty.value = 0;
+      savedTx.value = 0;
+      savedTy.value = 0;
+    });
+  const gesture = Gesture.Simultaneous(Gesture.Exclusive(doubleTap, pan), pinch);
+
+  const imgStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }],
+  }));
+
+  return (
+    <Modal visible={!!url} transparent animationType="fade" onRequestClose={onClose}>
+      <GestureHandlerRootView style={styles.viewerRoot}>
+        <GestureDetector gesture={gesture}>
+          <Animated.View style={styles.viewerBody}>
+            {url && (
+              <Animated.View style={[styles.viewerImageWrap, imgStyle]}>
+                <Image source={{ uri: url }} style={styles.viewerImage} contentFit="contain" />
+              </Animated.View>
+            )}
+          </Animated.View>
+        </GestureDetector>
+        <Pressable style={styles.viewerClose} onPress={onClose} hitSlop={12}>
+          <Ionicons name="close" size={28} color="#fff" />
+        </Pressable>
+      </GestureHandlerRootView>
+    </Modal>
+  );
+}
+
 export default function CityScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ regionId: string; country?: string }>();
@@ -73,6 +147,8 @@ export default function CityScreen() {
   const [saving, setSaving] = useState(false);
   // false = show my note as a read card with a 수정 button; true = compose/edit
   const [editing, setEditing] = useState(false);
+  // url of the photo open in the full-screen viewer (null = closed)
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
   // photo compose state: ordered list of attachments. `existingPath` is set for
   // photos already on the note (edit mode), null for freshly picked local ones.
   const [photos, setPhotos] = useState<{ uri: string; existingPath: string | null }[]>([]);
@@ -217,13 +293,7 @@ export default function CityScreen() {
                     )}
                   </View>
                   <Text style={styles.noteBody}>{myNote.body}</Text>
-                  {myNote.photoUrls.length > 0 && (
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.notePhotoStrip}>
-                      {myNote.photoUrls.map((url, i) => (
-                        <Image key={`${url}-${i}`} source={{ uri: url }} style={styles.notePhotoThumb} contentFit="cover" />
-                      ))}
-                    </ScrollView>
-                  )}
+                  <NotePhotos urls={myNote.photoUrls} onPress={setViewerUrl} />
                   {canWrite ? (
                     <View style={styles.cardFooter}>
                       {elig?.expiresAt && (
@@ -330,7 +400,7 @@ export default function CityScreen() {
           {/* everyone else's */}
           <View style={styles.notesList}>
             {otherNotes.map((n) => (
-              <NoteRow key={n.id} note={n} />
+              <NoteRow key={n.id} note={n} onPhotoPress={setViewerUrl} />
             ))}
             {loaded && notes.length === 0 && (
               <Text style={styles.emptyNotes}>아직 이 도시의 메모가 없어요. 첫 메모를 남겨보세요.</Text>
@@ -338,11 +408,48 @@ export default function CityScreen() {
           </View>
         </ScrollView>
       </SafeAreaView>
+      <PhotoViewer url={viewerUrl} onClose={() => setViewerUrl(null)} />
     </View>
   );
 }
 
-function NoteRow({ note, mineLabel }: { note: CityNote; mineLabel?: boolean }) {
+/** Renders a note's photos: one big image, or a scrollable strip with a count
+ *  badge so it's obvious when there are more than fit on screen. */
+function NotePhotos({ urls, onPress }: { urls: string[]; onPress: (url: string) => void }) {
+  if (urls.length === 0) return null;
+  if (urls.length === 1) {
+    return (
+      <Pressable onPress={() => onPress(urls[0])}>
+        <Image source={{ uri: urls[0] }} style={styles.notePhoto} contentFit="cover" />
+      </Pressable>
+    );
+  }
+  return (
+    <View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.notePhotoStrip}>
+        {urls.map((url, i) => (
+          <Pressable key={`${url}-${i}`} onPress={() => onPress(url)}>
+            <Image source={{ uri: url }} style={styles.notePhotoThumb} contentFit="cover" />
+          </Pressable>
+        ))}
+      </ScrollView>
+      <View style={styles.photoCount} pointerEvents="none">
+        <Ionicons name="images" size={12} color="#fff" />
+        <Text style={styles.photoCountText}>{urls.length}</Text>
+      </View>
+    </View>
+  );
+}
+
+function NoteRow({
+  note,
+  mineLabel,
+  onPhotoPress,
+}: {
+  note: CityNote;
+  mineLabel?: boolean;
+  onPhotoPress?: (url: string) => void;
+}) {
   return (
     <View style={styles.noteRow}>
       <View style={styles.noteHead}>
@@ -350,16 +457,7 @@ function NoteRow({ note, mineLabel }: { note: CityNote; mineLabel?: boolean }) {
         <Text style={styles.noteDate}>{relativeDate(note.createdAt)}</Text>
       </View>
       <Text style={styles.noteBody}>{note.body}</Text>
-      {note.photoUrls.length === 1 && (
-        <Image source={{ uri: note.photoUrls[0] }} style={styles.notePhoto} contentFit="cover" />
-      )}
-      {note.photoUrls.length > 1 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.notePhotoStrip}>
-          {note.photoUrls.map((url, i) => (
-            <Image key={`${url}-${i}`} source={{ uri: url }} style={styles.notePhotoThumb} contentFit="cover" />
-          ))}
-        </ScrollView>
-      )}
+      <NotePhotos urls={note.photoUrls} onPress={(u) => onPhotoPress?.(u)} />
     </View>
   );
 }
@@ -481,7 +579,35 @@ const styles = StyleSheet.create({
   noteDate: { color: Palette.muted, fontSize: 12 },
   noteBody: { color: Palette.ink, fontSize: 15, lineHeight: 22 },
   notePhoto: { width: '100%', height: 200, borderRadius: 10, marginTop: 4, backgroundColor: Palette.surface },
-  notePhotoStrip: { gap: Space.sm, marginTop: 4 },
-  notePhotoThumb: { width: 150, height: 150, borderRadius: 10, backgroundColor: Palette.surface },
+  notePhotoStrip: { gap: Space.sm, marginTop: 4, paddingRight: 36 },
+  notePhotoThumb: { width: 132, height: 132, borderRadius: 10, backgroundColor: Palette.surface },
+  photoCount: {
+    position: 'absolute',
+    top: 12,
+    right: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  photoCountText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   emptyNotes: { color: Palette.muted, fontSize: 14, marginTop: Space.md, textAlign: 'center' },
+  viewerRoot: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' },
+  viewerBody: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  viewerImageWrap: { width: '100%', height: '100%' },
+  viewerImage: { width: '100%', height: '100%' },
+  viewerClose: {
+    position: 'absolute',
+    top: 48,
+    right: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

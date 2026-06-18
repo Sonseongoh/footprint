@@ -3,6 +3,7 @@
  * first. Synced rows come from Supabase; still-pending rows from the offline
  * queue show a sync badge.
  */
+import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -11,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
 import { cityNameKo, regionNameKo } from '@/data/names-ko';
+import { getMyNotedPlaceKeys } from '@/lib/cityNotes';
 import { getRecords, type CheckinRecord } from '@/lib/records';
 import { COUNTRIES } from '@/types/domain';
 
@@ -22,12 +24,14 @@ function formatDate(iso: string): string {
 export default function RecordsScreen() {
   const router = useRouter();
   const [records, setRecords] = useState<CheckinRecord[]>([]);
+  const [notedPlaces, setNotedPlaces] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
-    const rows = await getRecords();
+    const [rows, noted] = await Promise.all([getRecords(), getMyNotedPlaceKeys()]);
     setRecords(rows);
+    setNotedPlaces(noted);
     setLoaded(true);
   }, []);
 
@@ -87,6 +91,12 @@ export default function RecordsScreen() {
                   <Text style={styles.city}>
                     {item.cityName ? cityNameKo(item.country, item.cityName) : '체크인'}
                   </Text>
+                  {notedPlaces.has(`${item.country}:${item.regionId}`) && (
+                    <View style={styles.noteBadge}>
+                      <Ionicons name="document-text" size={11} color={Palette.gold} />
+                      <Text style={styles.noteBadgeText}>메모</Text>
+                    </View>
+                  )}
                   {item.pendingSync && <Text style={styles.badge}>동기화 대기</Text>}
                 </View>
                 <Text style={styles.meta}>
@@ -135,6 +145,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 1,
   },
+  noteBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(245,194,107,0.14)',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  noteBadgeText: { color: Palette.gold, fontSize: 11, fontWeight: '700' },
   meta: { color: Palette.muted, fontSize: 13 },
   note: { color: Palette.ink, fontSize: 14, marginTop: 2 },
   empty: { alignItems: 'center', marginTop: 80, gap: Space.sm },

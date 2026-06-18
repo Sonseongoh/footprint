@@ -114,6 +114,20 @@ export async function getWriteEligibility(
   };
 }
 
+/**
+ * Place keys (`${country}:${regionId}`) the signed-in user has written a note
+ * for — lets the records timeline mark check-ins that already have a note.
+ */
+export async function getMyNotedPlaceKeys(): Promise<Set<string>> {
+  const { data: session } = await supabase.auth.getSession();
+  const userId = session.session?.user?.id;
+  if (!userId) return new Set();
+  const { data } = await supabase.from('city_notes').select('country, region_id').eq('user_id', userId);
+  const out = new Set<string>();
+  for (const r of data ?? []) out.add(`${r.country}:${r.region_id}`);
+  return out;
+}
+
 /** The signed-in user's own note for this place (one per place in the UI), if any. */
 export async function getMyNote(country: CountryCode, regionId: string): Promise<CityNote | null> {
   const { data: session } = await supabase.auth.getSession();

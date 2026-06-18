@@ -6,15 +6,28 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
+import { loadFillUnits } from '@/data';
 import { cityNameKo, regionNameKo } from '@/data/names-ko';
 import { getMyNotedPlaceKeys } from '@/lib/cityNotes';
 import { getRecords, type CheckinRecord } from '@/lib/records';
-import { COUNTRIES } from '@/types/domain';
+import { COUNTRIES, type CountryCode } from '@/types/domain';
+
+/** Resolve a fill unit's display name + parent region from its id, per country. */
+function buildFillIndex(): Record<string, { name: string; parent: string }> {
+  const idx: Record<string, { name: string; parent: string }> = {};
+  for (const c of ['KR', 'JP', 'TH'] as CountryCode[]) {
+    for (const f of loadFillUnits(c)) {
+      const p = f.properties as { id: string; name: string; regionId?: string };
+      idx[`${c}:${p.id}`] = { name: p.name, parent: p.regionId ?? p.id };
+    }
+  }
+  return idx;
+}
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -23,6 +36,7 @@ function formatDate(iso: string): string {
 
 export default function RecordsScreen() {
   const router = useRouter();
+  const fillIndex = useMemo(buildFillIndex, []);
   const [records, setRecords] = useState<CheckinRecord[]>([]);
   const [notedPlaces, setNotedPlaces] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
@@ -54,7 +68,12 @@ export default function RecordsScreen() {
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safe}>
-        <Text style={styles.title}>기록</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>기록</Text>
+          <Pressable onPress={() => router.push('/account')} hitSlop={10} style={styles.accountBtn}>
+            <Ionicons name="person-circle-outline" size={28} color={Palette.muted} />
+          </Pressable>
+        </View>
         <FlatList
           data={records}
           keyExtractor={(r) => r.id}
@@ -89,18 +108,34 @@ export default function RecordsScreen() {
               <View style={styles.body}>
                 <View style={styles.row}>
                   <Text style={styles.city}>
-                    {item.cityName ? cityNameKo(item.country, item.cityName) : '체크인'}
+                    {item.country === 'KR'
+                      ? (fillIndex[`KR:${item.regionId}`]?.name ?? '체크인')
+                      : item.cityName
+                        ? cityNameKo(item.country, item.cityName)
+                        : '체크인'}
                   </Text>
+                  {/* a check-in is always private (개인); 공유 is added on top when
+                      its city also has a public 여행 공유 */}
+                  <View style={styles.privateBadge}>
+                    <Ionicons name="lock-closed" size={10} color={Palette.muted} />
+                    <Text style={styles.privateBadgeText}>개인</Text>
+                  </View>
                   {notedPlaces.has(`${item.country}:${item.regionId}`) && (
                     <View style={styles.noteBadge}>
-                      <Ionicons name="document-text" size={11} color={Palette.gold} />
-                      <Text style={styles.noteBadgeText}>메모</Text>
+                      <Ionicons name="earth" size={11} color={Palette.gold} />
+                      <Text style={styles.noteBadgeText}>공유</Text>
                     </View>
                   )}
                   {item.pendingSync && <Text style={styles.badge}>동기화 대기</Text>}
                 </View>
                 <Text style={styles.meta}>
-                  {COUNTRIES[item.country].nameLocal} · {regionNameKo(item.regionId, item.regionId)}{' '}
+                  {COUNTRIES[item.country].nameLocal} ·{' '}
+                  {item.country === 'KR'
+                    ? regionNameKo(
+                        fillIndex[`KR:${item.regionId}`]?.parent ?? '',
+                        fillIndex[`KR:${item.regionId}`]?.name ?? item.regionId,
+                      )
+                    : regionNameKo(item.regionId, item.regionId)}{' '}
                   · {formatDate(item.createdAt)}
                 </Text>
                 {item.note ? <Text style={styles.note}>“{item.note}”</Text> : null}
@@ -117,7 +152,14 @@ export default function RecordsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Palette.bg },
   safe: { flex: 1, paddingHorizontal: Space.lg },
-  title: { color: Palette.ink, fontSize: 24, fontWeight: '800', marginVertical: Space.md },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginVertical: Space.md,
+  },
+  title: { color: Palette.ink, fontSize: 24, fontWeight: '800' },
+  accountBtn: { padding: 2 },
   list: { gap: Space.sm, paddingBottom: Space.xl },
   card: {
     flexDirection: 'row',
@@ -155,6 +197,16 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   noteBadgeText: { color: Palette.gold, fontSize: 11, fontWeight: '700' },
+  privateBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(136,147,184,0.16)',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  privateBadgeText: { color: Palette.muted, fontSize: 11, fontWeight: '700' },
   meta: { color: Palette.muted, fontSize: 13 },
   note: { color: Palette.ink, fontSize: 14, marginTop: 2 },
   empty: { alignItems: 'center', marginTop: 80, gap: Space.sm },

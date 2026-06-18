@@ -48,11 +48,28 @@ export async function applyLocalCityVisit(
   );
 }
 
+/** Wipe the local fill projection — used when switching accounts so one user's
+ *  map doesn't bleed into another's on the same device. */
+export async function clearLocalVisits(): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('DELETE FROM visits_local');
+  await db.runAsync('DELETE FROM visits_city_local');
+}
+
 /** True if the user has made any check-in at all (drives first-run onboarding). */
 export async function hasAnyVisit(): Promise<boolean> {
   const db = await getDb();
   const row = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) as n FROM visits_local');
   return (row?.n ?? 0) > 0;
+}
+
+/** Countries with at least one local check-in (drives the entry globe's fill). */
+export async function getVisitedCountries(): Promise<Set<CountryCode>> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ country: CountryCode }>(
+    'SELECT DISTINCT country FROM visits_local',
+  );
+  return new Set(rows.map((r) => r.country));
 }
 
 /** Set of visited city ids for a country. */

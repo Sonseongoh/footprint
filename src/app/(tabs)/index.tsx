@@ -7,6 +7,7 @@
  */
 import { Image } from 'expo-image';
 import * as Location from 'expo-location';
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -38,6 +39,7 @@ const TEST_POINTS: { label: string; pos: Position }[] = [
 ];
 
 export default function CheckinScreen() {
+  const router = useRouter();
   const [phase, setPhase] = useState<Phase>('idle');
   const [result, setResult] = useState<ResolvedCheckin | null>(null);
   const [coords, setCoords] = useState<{ pos: Position; accuracyM: number | null } | null>(null);
@@ -181,7 +183,7 @@ export default function CheckinScreen() {
                   )}
                   <TextInput
                     style={styles.input}
-                    placeholder="한 줄 메모 (선택)"
+                    placeholder="체크인 메모 · 나만 봐요 (선택)"
                     placeholderTextColor={Palette.muted}
                     value={note}
                     onChangeText={setNote}
@@ -230,10 +232,22 @@ export default function CheckinScreen() {
 
           {phase === 'done' && (
             <View style={styles.card}>
-              <Text style={styles.okBadge}>기록 완료</Text>
+              <Text style={styles.okBadge}>체크인 완료</Text>
               <Text style={styles.cardBody}>
-                {backendReady ? '동기화 큐에 저장됐습니다.' : '로컬에 저장됐습니다 (백엔드 연결 시 동기화).'}
+                지도에 채워졌어요. 가본 사람으로서 이 도시 추천을 남겨보세요.
               </Text>
+              {result?.ok && result.country && result.regionId && (
+                <Pressable
+                  style={styles.shareCta}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/city/[regionId]',
+                      params: { regionId: result.regionId!, country: result.country! },
+                    })
+                  }>
+                  <Text style={styles.shareCtaText}>이 도시 여행 공유하기 →</Text>
+                </Pressable>
+              )}
             </View>
           )}
         </ScrollView>
@@ -302,6 +316,14 @@ const styles = StyleSheet.create({
   cardTitle: { color: Palette.ink, fontSize: 18, fontWeight: '700' },
   cardBody: { color: Palette.muted, fontSize: 15, lineHeight: 22 },
   okBadge: { color: Palette.gold, fontSize: 15, fontWeight: '700' },
+  shareCta: {
+    marginTop: Space.sm,
+    backgroundColor: Palette.gold,
+    borderRadius: 12,
+    paddingVertical: Space.sm,
+    alignItems: 'center',
+  },
+  shareCtaText: { color: Palette.bg, fontSize: 15, fontWeight: '700' },
   city: { color: Palette.ink, fontSize: 28, fontWeight: '800' },
   region: { color: Palette.muted, fontSize: 16 },
   errTitle: { color: Palette.ink, fontSize: 18, fontWeight: '700' },

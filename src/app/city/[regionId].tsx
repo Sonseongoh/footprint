@@ -239,7 +239,7 @@ export default function CityScreen() {
 
   function onDelete() {
     if (!myNote) return;
-    Alert.alert('메모 삭제', '이 메모를 삭제할까요?', [
+    Alert.alert('여행 공유 삭제', '이 여행 공유를 삭제할까요?', [
       { text: '취소', style: 'cancel' },
       {
         text: '삭제',
@@ -274,7 +274,7 @@ export default function CityScreen() {
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.sub}>
-            {COUNTRIES[country].nameLocal} · 가본 사람들의 메모 {notes.length}
+            {COUNTRIES[country].nameLocal} · 가본 사람들의 여행 공유 {notes.length}
           </Text>
 
           {!loaded ? (
@@ -285,7 +285,7 @@ export default function CityScreen() {
               {myNote && !editing && (
                 <View style={styles.myNoteCard}>
                   <View style={styles.composeHead}>
-                    <Text style={styles.composeTitle}>내 메모</Text>
+                    <Text style={styles.composeTitle}>내 여행 공유</Text>
                     {canWrite && (
                       <Pressable onPress={onDelete} hitSlop={8} style={styles.trashBtn}>
                         <Ionicons name="trash-outline" size={20} color={Palette.muted} />
@@ -306,7 +306,7 @@ export default function CityScreen() {
                     </View>
                   ) : (
                     <Text style={styles.lockedBody}>
-                      체크인 후 {WRITE_WINDOW_DAYS}일이 지나 수정할 수 없어요. 다시 방문해 체크인하면 또 남길 수 있어요.
+                      체크인 후 {WRITE_WINDOW_DAYS}일이 지나 수정할 수 없어요. 다시 방문해 체크인하면 또 공유할 수 있어요.
                     </Text>
                   )}
                 </View>
@@ -317,9 +317,10 @@ export default function CityScreen() {
                 <View style={styles.composeCard}>
                   <View style={styles.composeHead}>
                     <Text style={styles.composeTitle}>
-                      {editing ? '메모 수정' : '이 도시 메모 남기기'}
+                      {editing ? '여행 공유 수정' : '이 도시 여행 공유하기'}
                     </Text>
                   </View>
+                  <Text style={styles.publicHint}>🌍 이 도시를 방문한 다른 여행자에게 공개돼요</Text>
                   {!nickname && (
                     <TextInput
                       style={styles.nickInput}
@@ -332,7 +333,7 @@ export default function CityScreen() {
                   )}
                   <TextInput
                     style={styles.input}
-                    placeholder="이 도시에 뭐가 있는지, 어디가 좋았는지 추천해주세요"
+                    placeholder="이 도시에 뭐가 있는지, 어디가 좋았는지 다른 여행자에게 공유해주세요"
                     placeholderTextColor={Palette.muted}
                     value={draft}
                     onChangeText={setDraft}
@@ -385,12 +386,12 @@ export default function CityScreen() {
               {!canWrite && !myNote && (
                 <View style={styles.lockedCard}>
                   <Text style={styles.lockedTitle}>
-                    {elig?.lastVisitAt ? '작성 기간이 끝났어요' : '아직 메모를 남길 수 없어요'}
+                    {elig?.lastVisitAt ? '공유 기간이 끝났어요' : '아직 여행 공유를 남길 수 없어요'}
                   </Text>
                   <Text style={styles.lockedBody}>
                     {elig?.lastVisitAt
-                      ? `체크인 후 ${WRITE_WINDOW_DAYS}일 동안만 작성할 수 있어요. 다시 방문해 체크인하면 또 남길 수 있어요.`
-                      : `이 도시에 체크인하면 ${WRITE_WINDOW_DAYS}일 동안 메모를 남길 수 있어요.`}
+                      ? `체크인 후 ${WRITE_WINDOW_DAYS}일 동안만 공유할 수 있어요. 다시 방문해 체크인하면 또 남길 수 있어요.`
+                      : `이 도시에 체크인하면 ${WRITE_WINDOW_DAYS}일 동안 여행 공유를 남길 수 있어요.`}
                   </Text>
                 </View>
               )}
@@ -403,7 +404,7 @@ export default function CityScreen() {
               <NoteRow key={n.id} note={n} onPhotoPress={setViewerUrl} />
             ))}
             {loaded && notes.length === 0 && (
-              <Text style={styles.emptyNotes}>아직 이 도시의 메모가 없어요. 첫 메모를 남겨보세요.</Text>
+              <Text style={styles.emptyNotes}>아직 이 도시의 여행 공유가 없어요. 첫 공유를 남겨보세요.</Text>
             )}
           </View>
         </ScrollView>
@@ -500,6 +501,7 @@ const styles = StyleSheet.create({
   cancelBtn: { paddingHorizontal: Space.sm, paddingVertical: Space.sm },
   composeHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 24 },
   composeTitle: { color: Palette.ink, fontSize: 16, fontWeight: '700' },
+  publicHint: { color: Palette.gold, fontSize: 12, fontWeight: '600' },
   window: { color: Palette.gold, fontSize: 12, fontWeight: '700' },
   nickInput: {
     backgroundColor: Palette.surface,

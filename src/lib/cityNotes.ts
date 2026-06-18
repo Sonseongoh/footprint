@@ -163,7 +163,7 @@ export async function getMyNote(country: CountryCode, regionId: string): Promise
 function friendlyWriteError(message: string): Error {
   // RLS rejection (no recent visit) surfaces as a generic policy violation
   if (/row-level security|policy/i.test(message)) {
-    return new Error('이 도시에 최근 7일 내 체크인한 사람만 메모를 남길 수 있어요');
+    return new Error('이 도시에 최근 7일 내 체크인한 사람만 여행 공유를 남길 수 있어요');
   }
   return new Error(message);
 }
@@ -183,7 +183,7 @@ export async function postCityNote(input: {
   photoUris?: string[];
 }): Promise<void> {
   const body = input.body.trim();
-  if (body.length < 1 || body.length > 500) throw new Error('메모는 1~500자로 입력해주세요');
+  if (body.length < 1 || body.length > 500) throw new Error('여행 공유는 1~500자로 입력해주세요');
   const { data: session } = await supabase.auth.getSession();
   const userId = session.session?.user?.id;
   if (!userId) throw new Error('로그인(백엔드 연결)이 필요합니다');

@@ -9,17 +9,22 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
 import { CountryGlobe } from '@/features/globe/CountryGlobe';
-import { hasAnyVisit } from '@/lib/localVisits';
+import { getVisitedCountries, hasAnyVisit } from '@/lib/localVisits';
+import type { CountryCode } from '@/types/domain';
 
 export default function GlobeScreen() {
   const router = useRouter();
   const [firstRun, setFirstRun] = useState(false);
+  const [visited, setVisited] = useState<Set<CountryCode>>(new Set());
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
       hasAnyVisit()
         .then((has) => active && setFirstRun(!has))
+        .catch(() => {});
+      getVisitedCountries()
+        .then((v) => active && setVisited(v))
         .catch(() => {});
       return () => {
         active = false;
@@ -38,6 +43,7 @@ export default function GlobeScreen() {
         </View>
         <View style={styles.globeWrap}>
           <CountryGlobe
+            visitedCountries={visited}
             onSelectCountry={(country) => router.push(`/explore?country=${country}`)}
           />
         </View>

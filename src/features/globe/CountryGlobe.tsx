@@ -64,6 +64,7 @@ interface Shape {
   key: string;
   points: string;
   active: boolean;
+  visited: boolean;
 }
 interface GlobeLabel {
   key: string;
@@ -71,6 +72,7 @@ interface GlobeLabel {
   y: number;
   text: string;
   active: boolean;
+  visited: boolean;
   weight: number;
 }
 
@@ -100,12 +102,17 @@ function cullLabels(labels: GlobeLabel[]): GlobeLabel[] {
 export interface CountryGlobeProps {
   /** called when the user taps an active country */
   onSelectCountry?: (country: CountryCode) => void;
+  /** countries the user has checked into — drawn solid gold ("collected").
+   *  Active-but-unvisited countries are drawn as a gold outline ("to collect"). */
+  visitedCountries?: Set<CountryCode>;
 }
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 
-export function CountryGlobe({ onSelectCountry }: CountryGlobeProps) {
+const EMPTY_VISITED = new Set<CountryCode>();
+
+export function CountryGlobe({ onSelectCountry, visitedCountries = EMPTY_VISITED }: CountryGlobeProps) {
   // view centre in [lng, lat]; drag moves it. zoom scales the projection.
   const [center, setCenter] = useState<[number, number]>(INITIAL_CENTER);
   const [dragStart, setDragStart] = useState<[number, number]>(INITIAL_CENTER);
@@ -126,6 +133,7 @@ export function CountryGlobe({ onSelectCountry }: CountryGlobeProps) {
     const rawLabels: GlobeLabel[] = [];
     world.features.forEach((f, fi) => {
       const active = ACTIVE.has(f.properties.iso);
+      const visited = active && visitedCountries.has(f.properties.iso as CountryCode);
       let best: { sx: number; sy: number; n: number; area: number } | null = null;
       ringsOf(f.geometry).forEach((ring, ri) => {
         const pts: string[] = [];
@@ -146,7 +154,7 @@ export function CountryGlobe({ onSelectCountry }: CountryGlobeProps) {
         }
         if (pts.length > 2) {
           // fi in the key: several territories share an empty iso code
-          shapes.push({ key: `${fi}-${ri}`, points: pts.join(' '), active });
+          shapes.push({ key: `${fi}-${ri}`, points: pts.join(' '), active, visited });
           const area = (hx - lx) * (hy - ly);
           if (!best || area > best.area) best = { sx, sy, n: pts.length, area };
         }
@@ -160,12 +168,13 @@ export function CountryGlobe({ onSelectCountry }: CountryGlobeProps) {
           // everyday short names (중국, 북한…), not formal official ones
           text: countryNameKo(f.properties.iso, f.properties.nameKo),
           active,
+          visited,
           weight: (active ? 1e9 : 0) + b.area,
         });
       }
     });
     return { shapes, labels: cullLabels(rawLabels) };
-  }, [projection, center]);
+  }, [projection, center, visitedCountries]);
 
   const size = Dimensions.get('window').width - 48;
   const toView = size / VIEW;
@@ -299,15 +308,21 @@ export function CountryGlobe({ onSelectCountry }: CountryGlobeProps) {
         </Defs>
         {/* ocean disk (scales with zoom) */}
         <Circle cx={VIEW / 2} cy={VIEW / 2} r={R * zoom} fill="url(#sea)" />
-        {shapes.map((s) => (
-          <Polygon
-            key={s.key}
-            points={s.points}
-            fill={s.active ? Palette.gold : Palette.surface}
-            stroke={Palette.bg}
-            strokeWidth={0.3}
-          />
-        ))}
+        {shapes.map((s) => {
+          const slot = s.active && !s.visited; // a country you can collect but haven't
+          return (
+            <Polygon
+              key={s.key}
+              points={s.points}
+              // visited = solid gold (collected); slot = slate with a FAINT gold
+              // outline (present but not "lit"); everything else = plain slate.
+              fill={s.visited ? Palette.gold : Palette.surface}
+              stroke={slot ? Palette.gold : Palette.bg}
+              strokeOpacity={slot ? 0.35 : 1}
+              strokeWidth={slot ? 0.5 : 0.3}
+            />
+          );
+        })}
         {/* country names from LABEL_ZOOM (active countries first, collision-culled) */}
         {zoom >= LABEL_ZOOM &&
           labels.map((l) => (
@@ -316,8 +331,10 @@ export function CountryGlobe({ onSelectCountry }: CountryGlobeProps) {
               x={l.x}
               y={l.y}
               fontSize={LABEL_FONT}
-              fontWeight={l.active ? '700' : '400'}
-              fill={l.active ? Palette.bg : Palette.muted}
+              fontWeight={l.visited ? '700' : '400'}
+              // dark text only on the filled gold; everything else stays muted so
+              // nothing "glows" until it's actually collected
+              fill={l.visited ? Palette.bg : Palette.muted}
               textAnchor="middle"
               alignmentBaseline="middle">
               {l.text}

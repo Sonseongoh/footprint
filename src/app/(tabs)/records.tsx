@@ -4,9 +4,9 @@
  * queue show a sync badge.
  */
 import { Image } from 'expo-image';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
@@ -20,6 +20,7 @@ function formatDate(iso: string): string {
 }
 
 export default function RecordsScreen() {
+  const router = useRouter();
   const [records, setRecords] = useState<CheckinRecord[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -66,7 +67,14 @@ export default function RecordsScreen() {
             ) : null
           }
           renderItem={({ item }) => (
-            <View style={styles.card}>
+            <Pressable
+              style={styles.card}
+              onPress={() =>
+                router.push({
+                  pathname: '/city/[regionId]',
+                  params: { regionId: item.regionId, country: item.country },
+                })
+              }>
               {item.photoUrl ? (
                 <Image source={{ uri: item.photoUrl }} style={styles.thumb} contentFit="cover" />
               ) : (
@@ -87,7 +95,8 @@ export default function RecordsScreen() {
                 </Text>
                 {item.note ? <Text style={styles.note}>“{item.note}”</Text> : null}
               </View>
-            </View>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
           )}
         />
       </SafeAreaView>
@@ -102,6 +111,7 @@ const styles = StyleSheet.create({
   list: { gap: Space.sm, paddingBottom: Space.xl },
   card: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: Space.md,
     backgroundColor: Palette.bgElevated,
     borderRadius: 16,
@@ -109,6 +119,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.surfaceLine,
   },
+  chevron: { color: Palette.muted, fontSize: 22, fontWeight: '400' },
   thumb: { width: 64, height: 64, borderRadius: 12, backgroundColor: Palette.surface },
   thumbEmpty: { alignItems: 'center', justifyContent: 'center' },
   thumbEmptyText: { fontSize: 22 },

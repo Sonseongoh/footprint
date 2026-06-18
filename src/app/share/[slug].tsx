@@ -10,7 +10,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
-import { loadCities, loadRegions } from '@/data';
+import { loadBackground, loadCities, loadFillUnits } from '@/data';
 import { CountryFillMap } from '@/features/map/CountryFillMap';
 import { getPublicShare, type PublicShareData } from '@/lib/share';
 import { COUNTRIES, type Visit } from '@/types/domain';
@@ -35,8 +35,13 @@ export default function PublicShareScreen() {
     };
   }, [slug]);
 
-  const regions = useMemo(() => (data ? loadRegions(data.country) : []), [data]);
-  const cities = useMemo(() => (data ? loadCities(data.country) : []), [data]);
+  // KR fills by 시 (city areas) over a 도 backdrop; JP/TH fill by admin-1 + city points
+  const regions = useMemo(() => (data ? loadFillUnits(data.country) : []), [data]);
+  const background = useMemo(() => (data ? loadBackground(data.country) : []), [data]);
+  const cities = useMemo(
+    () => (data && data.country !== 'KR' ? loadCities(data.country) : []),
+    [data],
+  );
 
   // adapt the public counts to the map's visits shape (fill only — no city depth)
   const visits = useMemo(() => {
@@ -73,7 +78,12 @@ export default function PublicShareScreen() {
     );
   }
 
-  const filledCities = cities.filter((c) => data.visitedCityIds.has(c.id)).length;
+  // KR counts collected 시 (fill units); JP/TH count city points
+  const filledCities =
+    data.country === 'KR'
+      ? regions.filter((r) => visits[r.properties.id]).length
+      : cities.filter((c) => data.visitedCityIds.has(c.id)).length;
+  const totalCities = data.country === 'KR' ? regions.length : cities.length;
 
   return (
     <View style={styles.root}>
@@ -85,7 +95,7 @@ export default function PublicShareScreen() {
 
         <Text style={styles.heading}>{COUNTRIES[data.country].nameLocal} 발자국 지도</Text>
         <Text style={styles.sub}>
-          채운 도시 {filledCities} / {cities.length} · 총 체크인 {data.totalVisits}회
+          채운 도시 {filledCities} / {totalCities} · 총 체크인 {data.totalVisits}회
         </Text>
 
         <View style={styles.mapWrap}>
@@ -94,6 +104,7 @@ export default function PublicShareScreen() {
             cities={cities}
             visits={visits}
             visitedCityIds={data.visitedCityIds}
+            background={background}
           />
         </View>
 

@@ -36,9 +36,14 @@ const VIEW_W = 320;
 const VIEW_H = 460;
 const PAD = 0.94;
 const MIN_SCALE = 1;
-const MAX_SCALE = 8;
+const MAX_SCALE = 5;
 const PROVINCE_FONT = 8;
 const CITY_FONT = 6;
+// Labels are counter-scaled by scale^LABEL_EXP (not full scale), so on-screen
+// text grows ~scale^(1-LABEL_EXP) as you zoom in — readable at deep zoom while
+// still shrinking RELATIVE to the map so more small cities reveal. cull() uses
+// the same exponent so its overlap boxes match the rendered size.
+const LABEL_EXP = 0.6;
 const FILL_FLOOR = 0.45; // gold intensity for 1 visited city (→ 1.0 when all done)
 
 /** linear blend between two #rrggbb colors */
@@ -60,12 +65,16 @@ export interface CountryFillMapProps {
   visitedCityIds: Set<string>;
   /** backdrop polygons drawn under the fill units (KR: 도, for 군 coverage) */
   background?: RegionFeature[];
+  /** tap a fill unit → open its city detail (notes). Omitted on share pages. */
+  onSelectRegion?: (regionId: string) => void;
 }
 
 interface Poly {
   key: string;
   points: string;
   fill: string;
+  /** the fill unit's region id (fill polys only; backdrop polys omit it) */
+  regionId?: string;
 }
 interface ProvinceLabel {
   key: string;
@@ -101,8 +110,9 @@ function cull<T extends { x: number; y: number; text: string; weight: number }>(
   // footprint in map space shrinks as you zoom in → more labels fit → small
   // cities (안양·군포…) reveal progressively.
   for (const l of [...labels].sort((a, b) => b.weight - a.weight)) {
-    const w = Math.max(l.text.length * fontSize * 0.58, fontSize) / zoom;
-    const h = fontSize / zoom;
+    const z = Math.pow(zoom, LABEL_EXP);
+    const w = Math.max(l.text.length * fontSize * 0.58, fontSize) / z;
+    const h = fontSize / z;
     const box = { x0: l.x - w / 2 - 0.5, y0: l.y - h / 2 - 0.5, x1: l.x + w / 2 + 0.5, y1: l.y + h / 2 + 0.5 };
     const hit = placed.some(
       (p) => !(box.x1 < p.x0 || box.x0 > p.x1 || box.y1 < p.y0 || box.y0 > p.y1),
@@ -121,6 +131,7 @@ export function CountryFillMap({
   visits,
   visitedCityIds,
   background = [],
+  onSelectRegion,
 }: CountryFillMapProps) {
   // settled zoom (updated on gesture end) — re-culls labels so more reveal as you
   // zoom in. Kept as state (not the animated value) so the cull memo can read it.
@@ -203,7 +214,7 @@ export function CountryFillMap({
           pts.push(`${xy[0].toFixed(1)},${xy[1].toFixed(1)}`);
         }
         if (pts.length > 2) {
-          polys.push({ key: `${f.properties.id}-${i}`, points: pts.join(' '), fill });
+          polys.push({ key: `${f.properties.id}-${i}`, points: pts.join(' '), fill, regionId: f.properties.id });
           if (proj.length > largest.length) largest = proj;
         }
       });
@@ -352,19 +363,21 @@ export function CountryFillMap({
   // when there's no separate city layer (KR: the 시 ARE the units), region labels
   // must stay visible when zoomed in — don't fade them out into nothing.
   const hasCityLayer = cityLabels.length > 0;
-  // fontSize is counter-scaled (÷ zoom) so labels keep a constant on-screen size
-  // while the map scales — that's what lets more labels reveal as you zoom in.
+  // fontSize is counter-scaled by the LIVE scale (not the settled zoom) so it
+  // updates *continuously* as you pinch — otherwise it only re-applies on gesture
+  // end and the text visibly snaps the instant you lift your fingers. The ^EXP
+  // (LABEL_EXP < 1) lets on-screen text grow gently with zoom so it's readable at
+  // max zoom. Set on the group; SVG font-size inherits to the child <SvgText>.
   const provinceProps = useAnimatedProps(() => ({
+    fontSize: PROVINCE_FONT / Math.pow(scale.value, LABEL_EXP),
     opacity: hasCityLayer
       ? interpolate(scale.value, [1.25, 1.7, 3.0, 3.4], [0, 1, 1, 0], Extrapolation.CLAMP)
       : interpolate(scale.value, [1.25, 1.7], [0, 1], Extrapolation.CLAMP),
   }));
   const cityProps = useAnimatedProps(() => ({
+    fontSize: CITY_FONT / Math.pow(scale.value, LABEL_EXP),
     opacity: interpolate(scale.value, [3.5, 3.9], [0, 1], Extrapolation.CLAMP),
   }));
-  // label fonts counter-scaled to the settled zoom → constant on-screen size
-  const provinceFont = PROVINCE_FONT / zoomLevel;
-  const cityFont = CITY_FONT / zoomLevel;
 
   const inner = (
     <Animated.View style={[{ flex: 1, alignItems: 'center', justifyContent: 'center' }, animStyle]}>
@@ -375,7 +388,14 @@ export function CountryFillMap({
           ))}
 
         {polys.map((p) => (
-          <Polygon key={p.key} points={p.points} fill={p.fill} stroke={Palette.surfaceLine} strokeWidth={0.4} />
+          <Polygon
+            key={p.key}
+            points={p.points}
+            fill={p.fill}
+            stroke={Palette.surfaceLine}
+            strokeWidth={0.4}
+            onPress={onSelectRegion && p.regionId ? () => onSelectRegion(p.regionId!) : undefined}
+          />
         ))}
 
           {/* visited city pins — always visible so you can see WHICH city you've
@@ -392,7 +412,6 @@ export function CountryFillMap({
                 key={l.key}
                 x={l.x}
                 y={l.y}
-                fontSize={provinceFont}
                 fontWeight={l.visited ? '700' : '400'}
                 fill={l.visited ? Palette.bg : Palette.muted}
                 textAnchor="middle"
@@ -410,7 +429,6 @@ export function CountryFillMap({
                 key={l.key}
                 x={l.x}
                 y={l.y}
-                fontSize={cityFont}
                 fontWeight={l.visited ? '700' : '400'}
                 fill={l.visited ? Palette.ink : Palette.muted}
                 fillOpacity={l.visited ? 1 : 0.5}

@@ -45,6 +45,8 @@ function FilterChip({
   );
 }
 
+const COUNTRY_FLAG: Record<CountryCode, string> = { KR: '🇰🇷', JP: '🇯🇵', TH: '🇹🇭' };
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
@@ -149,7 +151,7 @@ export default function RecordsScreen() {
                 </View>
               ) : (
                 <View style={[styles.thumb, styles.thumbEmpty]}>
-                  <Text style={styles.thumbEmptyText}>📍</Text>
+                  <Text style={styles.thumbEmptyText}>{COUNTRY_FLAG[item.country]}</Text>
                 </View>
               )}
               <View style={styles.body}>
@@ -244,7 +246,7 @@ const styles = StyleSheet.create({
   },
   thumbCountText: { color: '#fff', fontSize: 10, fontWeight: '700' },
   thumbEmpty: { alignItems: 'center', justifyContent: 'center' },
-  thumbEmptyText: { fontSize: 22 },
+  thumbEmptyText: { fontSize: 30 },
   body: { flex: 1, gap: 3, justifyContent: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: Space.sm },
   city: { color: Palette.ink, fontSize: 17, fontWeight: '700' },

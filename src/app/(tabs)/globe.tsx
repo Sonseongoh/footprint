@@ -3,17 +3,23 @@
  * its fill map. First run (no check-ins yet) shows an onboarding hint card.
  */
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
+import { availableCountries } from '@/data';
 import { CountryGlobe } from '@/features/globe/CountryGlobe';
 import { getVisitedCountries, hasAnyVisit } from '@/lib/localVisits';
-import type { CountryCode } from '@/types/domain';
+import { COUNTRIES, type CountryCode } from '@/types/domain';
 
 export default function GlobeScreen() {
   const router = useRouter();
+  // supported countries, derived (not hardcoded) so it grows as data lands
+  const supportedLabel = useMemo(
+    () => availableCountries().map((c) => COUNTRIES[c].nameLocal).join(' · '),
+    [],
+  );
   const [firstRun, setFirstRun] = useState(false);
   const [visited, setVisited] = useState<Set<CountryCode>>(new Set());
 
@@ -58,7 +64,10 @@ export default function GlobeScreen() {
             <Text style={styles.onboardCta}>체크인 하러 가기 →</Text>
           </Pressable>
         ) : (
-          <Text style={styles.hint}>지구를 돌려 금색 나라를 눌러보세요 · 한국 · 일본 · 태국</Text>
+          <View style={styles.hintWrap}>
+            <Text style={styles.hint}>나라를 눌러 내 지도를 펼쳐보세요</Text>
+            <Text style={styles.hintSub}>지금 가볼 수 있는 곳 · {supportedLabel}</Text>
+          </View>
         )}
       </SafeAreaView>
     </View>
@@ -73,7 +82,9 @@ const styles = StyleSheet.create({
   dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: Palette.gold },
   brand: { color: Palette.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.5 },
   globeWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  hint: { color: Palette.muted, fontSize: 14, textAlign: 'center', marginBottom: Space.md },
+  hintWrap: { alignItems: 'center', gap: 4, marginBottom: Space.md },
+  hint: { color: Palette.ink, fontSize: 15, fontWeight: '600', textAlign: 'center' },
+  hintSub: { color: Palette.muted, fontSize: 13, textAlign: 'center' },
   onboardCard: {
     backgroundColor: Palette.bgElevated,
     borderRadius: 18,

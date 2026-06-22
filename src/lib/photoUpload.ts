@@ -13,19 +13,35 @@ import { File } from 'expo-file-system';
 
 import { supabase } from '@/lib/supabase';
 
+/** Upload one check-in photo to the private `photos` bucket. Stable path keyed by
+ *  event id + index so re-sent rows overwrite (upsert) instead of duplicating. */
 export async function uploadCheckinPhoto(
   userId: string,
   eventId: string,
   localUri: string,
+  index = 0,
 ): Promise<string> {
   const bytes = await new File(localUri).arrayBuffer();
-  const path = `${userId}/${eventId}.jpg`;
+  const path = `${userId}/${eventId}/${index}.jpg`;
   const { error } = await supabase.storage.from('photos').upload(path, bytes, {
     contentType: 'image/jpeg',
     upsert: true, // idempotent retries
   });
   if (error) throw error;
   return path;
+}
+
+/** Upload several check-in photos; returns their storage paths in order. */
+export async function uploadCheckinPhotos(
+  userId: string,
+  eventId: string,
+  localUris: string[],
+): Promise<string[]> {
+  const out: string[] = [];
+  for (let i = 0; i < localUris.length; i++) {
+    out.push(await uploadCheckinPhoto(userId, eventId, localUris[i], i));
+  }
+  return out;
 }
 
 /**

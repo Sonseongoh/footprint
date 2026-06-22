@@ -12,13 +12,13 @@
  * Idempotency: the queued id IS the visit_event id. Re-flushing upserts the
  * same id with ignoreDuplicates, so a retry never double-counts a re-visit.
  *
- * Photo upload is added in the next sub-task (needs the expo-file-system v56
- * API verified first); the queue already carries photoUri for that.
+ * A check-in can carry 0+ photos (uploaded to the private photos bucket, stored
+ * as visit_events.photo_paths); the queue holds their local uris until sync.
  */
 import * as Crypto from 'expo-crypto';
 
 import { applyLocalCheckin, applyLocalCityVisit } from '@/lib/localVisits';
-import { uploadCheckinPhoto } from '@/lib/photoUpload';
+import { uploadCheckinPhotos } from '@/lib/photoUpload';
 import { supabase } from '@/lib/supabase';
 import {
   enqueue,
@@ -40,7 +40,7 @@ export interface RecordCheckinInput {
   lng: number;
   accuracyM: number | null;
   note: string | null;
-  photoUri?: string | null;
+  photoUris?: string[];
   source?: VisitSource;
 }
 
@@ -61,7 +61,7 @@ export async function recordCheckin(input: RecordCheckinInput): Promise<string> 
     accuracyM: input.accuracyM,
     note: input.note,
   };
-  await enqueue(checkin, input.photoUri ?? null);
+  await enqueue(checkin, input.photoUris ?? []);
   // Local-first: update the fill projections immediately so the map reflects the
   // new visit even with no backend / offline.
   await applyLocalCheckin(checkin.regionId, checkin.country, checkin.createdAt);
@@ -75,15 +75,13 @@ export async function recordCheckin(input: RecordCheckinInput): Promise<string> 
 
 /**
  * Sync one queued check-in: upload its photo (if any) to Storage first, then
- * upsert the event row with photo_path. Idempotent on id — merge-upsert is safe
+ * upsert the event row with photo_paths. Idempotent on id — merge-upsert is safe
  * because the visits aggregate trigger fires on INSERT only, so a retried row
- * updates photo_path without double-counting the re-visit.
+ * updates photo_paths without double-counting the re-visit.
  */
 async function syncOne(row: QueueRow, userId: string): Promise<void> {
-  let photoPath: string | null = null;
-  if (row.photoUri) {
-    photoPath = await uploadCheckinPhoto(userId, row.id, row.photoUri);
-  }
+  const photoPaths =
+    row.photoUris.length > 0 ? await uploadCheckinPhotos(userId, row.id, row.photoUris) : [];
   const { error } = await supabase.from('visit_events').upsert(
     {
       id: row.id,
@@ -100,7 +98,7 @@ async function syncOne(row: QueueRow, userId: string): Promise<void> {
       lng: row.lng,
       accuracy_m: row.accuracyM,
       note: row.note,
-      photo_path: photoPath,
+      photo_paths: photoPaths,
     },
     { onConflict: 'id' },
   );

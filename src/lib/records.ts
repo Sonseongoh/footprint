@@ -16,8 +16,8 @@ export interface CheckinRecord {
   cityName: string | null;
   note: string | null;
   createdAt: string;
-  /** displayable image source (signed url or local file uri), if any */
-  photoUrl: string | null;
+  /** displayable image sources (signed urls or local file uris), 0+ */
+  photoUrls: string[];
   /** true while the row is still waiting in the offline queue */
   pendingSync: boolean;
 }
@@ -37,7 +37,7 @@ export async function getRecords(): Promise<CheckinRecord[]> {
       cityName: q.cityName,
       note: q.note,
       createdAt: q.createdAt,
-      photoUrl: q.photoUri,
+      photoUrls: q.photoUris,
       pendingSync: true,
     });
   }
@@ -47,24 +47,25 @@ export async function getRecords(): Promise<CheckinRecord[]> {
   try {
     const { data, error } = await supabase
       .from('visit_events')
-      .select('id, country, region_id, city_name, note, created_at, photo_path')
+      .select('id, country, region_id, city_name, note, created_at, photo_paths')
       .order('created_at', { ascending: false })
       .limit(200);
     if (error) throw error;
 
     const rows = (data ?? []).filter((r) => !queuedIds.has(r.id));
-    const photoPaths = rows.map((r) => r.photo_path).filter((p): p is string => Boolean(p));
+    const allPaths = rows.flatMap((r) => (r.photo_paths ?? []) as string[]);
     const signed = new Map<string, string>();
-    if (photoPaths.length > 0) {
+    if (allPaths.length > 0) {
       const { data: urls } = await supabase.storage
         .from('photos')
-        .createSignedUrls(photoPaths, SIGNED_URL_TTL_S);
+        .createSignedUrls(allPaths, SIGNED_URL_TTL_S);
       for (const u of urls ?? []) {
         if (u.signedUrl && u.path) signed.set(u.path, u.signedUrl);
       }
     }
 
     for (const r of rows) {
+      const paths: string[] = r.photo_paths ?? [];
       out.push({
         id: r.id,
         country: r.country as CountryCode,
@@ -72,7 +73,7 @@ export async function getRecords(): Promise<CheckinRecord[]> {
         cityName: r.city_name,
         note: r.note,
         createdAt: r.created_at,
-        photoUrl: r.photo_path ? (signed.get(r.photo_path) ?? null) : null,
+        photoUrls: paths.map((p) => signed.get(p)).filter((u): u is string => Boolean(u)),
         pendingSync: false,
       });
     }

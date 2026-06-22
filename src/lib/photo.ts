@@ -25,17 +25,24 @@ async function downscale(uri: string): Promise<string> {
   return result.uri;
 }
 
-/** Pick a photo from the library. Returns the resized local uri, or null. */
-export async function pickFromLibrary(): Promise<string | null> {
+/**
+ * Pick one or more photos from the library. Returns resized local uris (empty if
+ * cancelled/denied). Pass selectionLimit > 1 to allow multi-select (editing/crop
+ * is disabled by the OS picker when multiple selection is on).
+ */
+export async function pickFromLibrary(selectionLimit = 1): Promise<string[]> {
   const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!perm.granted) return null;
+  if (!perm.granted) return [];
+  const multiple = selectionLimit !== 1;
   const res = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['images'],
     quality: 1,
-    allowsEditing: true,
+    allowsEditing: !multiple,
+    allowsMultipleSelection: multiple,
+    selectionLimit: multiple ? selectionLimit : undefined,
   });
-  if (res.canceled || !res.assets?.[0]) return null;
-  return downscale(res.assets[0].uri);
+  if (res.canceled || !res.assets?.length) return [];
+  return Promise.all(res.assets.map((a) => downscale(a.uri)));
 }
 
 /** Capture a photo with the camera. Returns the resized local uri, or null. */

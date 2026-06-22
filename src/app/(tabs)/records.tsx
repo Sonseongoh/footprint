@@ -29,6 +29,22 @@ function buildFillIndex(): Record<string, { name: string; parent: string }> {
   return idx;
 }
 
+function FilterChip({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
+      <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
@@ -39,8 +55,16 @@ export default function RecordsScreen() {
   const fillIndex = useMemo(buildFillIndex, []);
   const [records, setRecords] = useState<CheckinRecord[]>([]);
   const [notedPlaces, setNotedPlaces] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<CountryCode | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loaded, setLoaded] = useState(false);
+
+  // countries the user actually has records in (drives the filter chips)
+  const presentCountries = useMemo(() => {
+    const set = new Set(records.map((r) => r.country));
+    return (['KR', 'JP', 'TH'] as CountryCode[]).filter((c) => set.has(c));
+  }, [records]);
+  const shown = filter ? records.filter((r) => r.country === filter) : records;
 
   const load = useCallback(async () => {
     const [rows, noted] = await Promise.all([getRecords(), getMyNotedPlaceKeys()]);
@@ -74,8 +98,23 @@ export default function RecordsScreen() {
             <Ionicons name="person-circle-outline" size={28} color={Palette.muted} />
           </Pressable>
         </View>
+
+        {presentCountries.length > 1 && (
+          <View style={styles.filterRow}>
+            <FilterChip label="전체" active={filter === null} onPress={() => setFilter(null)} />
+            {presentCountries.map((c) => (
+              <FilterChip
+                key={c}
+                label={COUNTRIES[c].nameLocal}
+                active={filter === c}
+                onPress={() => setFilter(c)}
+              />
+            ))}
+          </View>
+        )}
+
         <FlatList
-          data={records}
+          data={shown}
           keyExtractor={(r) => r.id}
           contentContainerStyle={styles.list}
           refreshControl={
@@ -98,8 +137,16 @@ export default function RecordsScreen() {
                   params: { regionId: item.regionId, country: item.country },
                 })
               }>
-              {item.photoUrl ? (
-                <Image source={{ uri: item.photoUrl }} style={styles.thumb} contentFit="cover" />
+              {item.photoUrls.length > 0 ? (
+                <View>
+                  <Image source={{ uri: item.photoUrls[0] }} style={styles.thumb} contentFit="cover" />
+                  {item.photoUrls.length > 1 && (
+                    <View style={styles.thumbCount}>
+                      <Ionicons name="images" size={9} color="#fff" />
+                      <Text style={styles.thumbCountText}>{item.photoUrls.length}</Text>
+                    </View>
+                  )}
+                </View>
               ) : (
                 <View style={[styles.thumb, styles.thumbEmpty]}>
                   <Text style={styles.thumbEmptyText}>📍</Text>
@@ -160,6 +207,16 @@ const styles = StyleSheet.create({
   },
   title: { color: Palette.ink, fontSize: 24, fontWeight: '800' },
   accountBtn: { padding: 2 },
+  filterRow: { flexDirection: 'row', gap: Space.sm, marginBottom: Space.md },
+  chip: {
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.xs,
+    borderRadius: 999,
+    backgroundColor: Palette.surface,
+  },
+  chipActive: { backgroundColor: Palette.gold },
+  chipText: { color: Palette.muted, fontSize: 14, fontWeight: '600' },
+  chipTextActive: { color: Palette.bg, fontWeight: '700' },
   list: { gap: Space.sm, paddingBottom: Space.xl },
   card: {
     flexDirection: 'row',
@@ -173,6 +230,19 @@ const styles = StyleSheet.create({
   },
   chevron: { color: Palette.muted, fontSize: 22, fontWeight: '400' },
   thumb: { width: 64, height: 64, borderRadius: 12, backgroundColor: Palette.surface },
+  thumbCount: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  thumbCountText: { color: '#fff', fontSize: 10, fontWeight: '700' },
   thumbEmpty: { alignItems: 'center', justifyContent: 'center' },
   thumbEmptyText: { fontSize: 22 },
   body: { flex: 1, gap: 3, justifyContent: 'center' },

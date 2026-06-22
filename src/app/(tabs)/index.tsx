@@ -5,12 +5,14 @@
  * matched country / prefecture / nearest city (or a clear error) → record
  * locally (syncs to Supabase when a backend is configured).
  */
+import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -30,6 +32,9 @@ import { COUNTRIES, type Position } from '@/types/domain';
 
 type Phase = 'idle' | 'locating' | 'result' | 'denied' | 'done';
 
+/** Max photos per check-in. */
+const MAX_CHECKIN_PHOTOS = 5;
+
 const TEST_POINTS: { label: string; pos: Position }[] = [
   { label: '서울', pos: [126.978, 37.5665] },
   { label: '수원', pos: [127.0089, 37.2911] },
@@ -44,7 +49,8 @@ export default function CheckinScreen() {
   const [result, setResult] = useState<ResolvedCheckin | null>(null);
   const [coords, setCoords] = useState<{ pos: Position; accuracyM: number | null } | null>(null);
   const [note, setNote] = useState('');
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoUris, setPhotoUris] = useState<string[]>([]);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [backendReady, setBackendReady] = useState<boolean | null>(null);
 
@@ -101,24 +107,40 @@ export default function CheckinScreen() {
       lng: coords.pos[0],
       accuracyM: coords.accuracyM,
       note: note.trim() || null,
-      photoUri,
+      photoUris,
     });
     setPhase('done');
     setNote('');
-    setPhotoUri(null);
+    setPhotoUris([]);
   }
 
   function reset() {
     setResult(null);
     setCoords(null);
     setNote('');
-    setPhotoUri(null);
+    setPhotoUris([]);
     setPhase('idle');
   }
 
   async function addPhoto(source: 'camera' | 'library') {
-    const uri = source === 'camera' ? await takePhoto() : await pickFromLibrary();
-    if (uri) setPhotoUri(uri);
+    const remaining = MAX_CHECKIN_PHOTOS - photoUris.length;
+    if (remaining <= 0) return;
+    if (source === 'camera') {
+      const uri = await takePhoto();
+      if (uri) setPhotoUris((prev) => [...prev, uri]);
+    } else {
+      const uris = await pickFromLibrary(remaining);
+      if (uris.length) setPhotoUris((prev) => [...prev, ...uris.slice(0, remaining)]);
+    }
+  }
+
+  function choosePhoto(source: 'camera' | 'library') {
+    setSheetOpen(false);
+    addPhoto(source);
+  }
+
+  function removePhoto(index: number) {
+    setPhotoUris((prev) => prev.filter((_, i) => i !== index));
   }
 
   return (
@@ -189,28 +211,31 @@ export default function CheckinScreen() {
                     onChangeText={setNote}
                     maxLength={80}
                   />
-                  <View style={styles.photoRow}>
-                    {photoUri ? (
-                      <Image source={{ uri: photoUri }} style={styles.thumb} contentFit="cover" />
-                    ) : (
-                      <View style={[styles.thumb, styles.thumbEmpty]}>
-                        <Text style={styles.thumbEmptyText}>사진</Text>
-                      </View>
-                    )}
-                    <View style={styles.photoBtns}>
-                      <Pressable style={styles.photoBtn} onPress={() => addPhoto('camera')}>
-                        <Text style={styles.photoBtnText}>📷 촬영</Text>
-                      </Pressable>
-                      <Pressable style={styles.photoBtn} onPress={() => addPhoto('library')}>
-                        <Text style={styles.photoBtnText}>🖼 갤러리</Text>
-                      </Pressable>
-                      {photoUri && (
-                        <Pressable style={styles.photoBtn} onPress={() => setPhotoUri(null)}>
-                          <Text style={[styles.photoBtnText, { color: Palette.muted }]}>제거</Text>
+                  {photoUris.length > 0 ? (
+                    <View style={styles.photoStrip}>
+                      {photoUris.map((uri, i) => (
+                        <View key={`${uri}-${i}`} style={styles.photoTileWrap}>
+                          <Image source={{ uri }} style={styles.photoTile} contentFit="cover" />
+                          <Pressable
+                            style={styles.photoRemove}
+                            hitSlop={8}
+                            onPress={() => removePhoto(i)}>
+                            <Ionicons name="close" size={14} color="#fff" />
+                          </Pressable>
+                        </View>
+                      ))}
+                      {photoUris.length < MAX_CHECKIN_PHOTOS && (
+                        <Pressable style={styles.photoAddTile} onPress={() => setSheetOpen(true)}>
+                          <Ionicons name="add" size={26} color={Palette.muted} />
                         </Pressable>
                       )}
                     </View>
-                  </View>
+                  ) : (
+                    <Pressable style={styles.photoZone} onPress={() => setSheetOpen(true)}>
+                      <Ionicons name="camera-outline" size={24} color={Palette.muted} />
+                      <Text style={styles.photoZoneLabel}>사진 추가</Text>
+                    </Pressable>
+                  )}
                 </>
               ) : (
                 <>
@@ -282,6 +307,25 @@ export default function CheckinScreen() {
           )}
         </View>
       </SafeAreaView>
+
+      <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={() => setSheetOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setSheetOpen(false)}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Pressable style={styles.sheetBtn} onPress={() => choosePhoto('camera')}>
+              <Ionicons name="camera" size={20} color={Palette.ink} />
+              <Text style={styles.sheetBtnText}>촬영</Text>
+            </Pressable>
+            <Pressable style={styles.sheetBtn} onPress={() => choosePhoto('library')}>
+              <Ionicons name="images" size={20} color={Palette.ink} />
+              <Text style={styles.sheetBtnText}>갤러리에서 선택</Text>
+            </Pressable>
+            <Pressable style={styles.sheetCancel} onPress={() => setSheetOpen(false)}>
+              <Text style={styles.sheetCancelText}>취소</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -336,18 +380,74 @@ const styles = StyleSheet.create({
     color: Palette.ink,
     fontSize: 16,
   },
-  photoRow: { flexDirection: 'row', gap: Space.md, marginTop: Space.sm, alignItems: 'center' },
-  thumb: { width: 64, height: 64, borderRadius: 12, backgroundColor: Palette.surface },
-  thumbEmpty: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Palette.surfaceLine },
-  thumbEmptyText: { color: Palette.muted, fontSize: 12 },
-  photoBtns: { flexDirection: 'row', gap: Space.sm, flexWrap: 'wrap', flex: 1 },
-  photoBtn: {
+  photoZone: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Space.sm,
+    height: 84,
+    marginTop: Space.sm,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: Palette.surfaceLine,
     backgroundColor: Palette.surface,
-    borderRadius: 10,
-    paddingHorizontal: Space.md,
-    paddingVertical: Space.sm,
   },
-  photoBtnText: { color: Palette.ink, fontSize: 14 },
+  photoZoneLabel: { color: Palette.muted, fontSize: 14, fontWeight: '600' },
+  photoStrip: { flexDirection: 'row', flexWrap: 'wrap', gap: Space.sm, marginTop: Space.sm },
+  photoTileWrap: { position: 'relative' },
+  photoTile: { width: 80, height: 80, borderRadius: 12, backgroundColor: Palette.surface },
+  photoAddTile: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: Palette.surfaceLine,
+    backgroundColor: Palette.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoRemove: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: Palette.bgElevated,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: Space.lg,
+    paddingBottom: Space.xl,
+    gap: Space.sm,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Palette.surfaceLine,
+    marginBottom: Space.sm,
+  },
+  sheetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Space.md,
+    backgroundColor: Palette.surface,
+    borderRadius: 12,
+    paddingHorizontal: Space.lg,
+    paddingVertical: Space.md,
+  },
+  sheetBtnText: { color: Palette.ink, fontSize: 16, fontWeight: '600' },
+  sheetCancel: { alignItems: 'center', paddingVertical: Space.md, marginTop: 2 },
+  sheetCancelText: { color: Palette.muted, fontSize: 15, fontWeight: '700' },
   actions: { padding: Space.lg, gap: Space.sm },
   primary: {
     backgroundColor: Palette.gold,

@@ -294,13 +294,24 @@ export default function CityScreen() {
   }
 
   async function onAddPhoto(fromCamera: boolean) {
-    if (photos.length >= MAX_NOTE_PHOTOS) {
+    const remaining = MAX_NOTE_PHOTOS - photos.length;
+    if (remaining <= 0) {
       Alert.alert('사진 개수 제한', `사진은 최대 ${MAX_NOTE_PHOTOS}장까지 넣을 수 있어요`);
       return;
     }
     try {
-      const uri = fromCamera ? await takePhoto() : await pickFromLibrary();
-      if (uri) setPhotos((prev) => [...prev, { uri, existingPath: null }]);
+      if (fromCamera) {
+        const uri = await takePhoto();
+        if (uri) setPhotos((prev) => [...prev, { uri, existingPath: null }]);
+      } else {
+        const uris = await pickFromLibrary(remaining);
+        if (uris.length) {
+          setPhotos((prev) => [
+            ...prev,
+            ...uris.slice(0, remaining).map((uri) => ({ uri, existingPath: null })),
+          ]);
+        }
+      }
     } catch (err) {
       Alert.alert('사진 오류', err instanceof Error ? err.message : '사진을 불러오지 못했어요');
     }
@@ -367,9 +378,14 @@ export default function CityScreen() {
                   </View>
                   {myCheckins.map((c) => (
                     <View key={c.id} style={styles.checkinRow}>
-                      {c.photoUrl ? (
-                        <Pressable onPress={() => setViewerUrl(c.photoUrl)}>
-                          <Image source={{ uri: c.photoUrl }} style={styles.checkinThumb} contentFit="cover" />
+                      {c.photoUrls.length > 0 ? (
+                        <Pressable onPress={() => setViewerUrl(c.photoUrls[0])}>
+                          <Image source={{ uri: c.photoUrls[0] }} style={styles.checkinThumb} contentFit="cover" />
+                          {c.photoUrls.length > 1 && (
+                            <View style={styles.checkinThumbCount}>
+                              <Text style={styles.checkinThumbCountText}>{c.photoUrls.length}</Text>
+                            </View>
+                          )}
                         </Pressable>
                       ) : (
                         <View style={[styles.checkinThumb, styles.checkinThumbEmpty]}>
@@ -654,6 +670,19 @@ const styles = StyleSheet.create({
   },
   checkinThumb: { width: 52, height: 52, borderRadius: 10, backgroundColor: Palette.surface },
   checkinThumbEmpty: { alignItems: 'center', justifyContent: 'center' },
+  checkinThumbCount: {
+    position: 'absolute',
+    bottom: 3,
+    right: 3,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkinThumbCountText: { color: '#fff', fontSize: 10, fontWeight: '700' },
   checkinBody: { flex: 1, gap: 2 },
   checkinDate: { color: Palette.muted, fontSize: 12 },
   checkinNote: { color: Palette.ink, fontSize: 14 },

@@ -26,17 +26,30 @@ export interface QueuedCheckin {
 }
 
 export interface QueueRow extends QueuedCheckin {
-  photoUri: string | null;
+  /** local uris of the check-in photos (0+). */
+  photoUris: string[];
   attempts: number;
 }
 
-export async function enqueue(checkin: QueuedCheckin, photoUri: string | null): Promise<void> {
+/** Parse the photo_uri column, which now holds a JSON array. Tolerates the old
+ *  single-uri (non-JSON) format from rows enqueued before multi-photo. */
+function parsePhotoUris(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v : [raw];
+  } catch {
+    return [raw];
+  }
+}
+
+export async function enqueue(checkin: QueuedCheckin, photoUris: string[]): Promise<void> {
   const db = await getDb();
   await db.runAsync(
     'INSERT OR IGNORE INTO checkin_queue (id, payload, photo_uri, created_at, attempts) VALUES (?, ?, ?, ?, 0)',
     checkin.id,
     JSON.stringify(checkin),
-    photoUri,
+    JSON.stringify(photoUris),
     checkin.createdAt,
   );
 }
@@ -51,7 +64,7 @@ export async function pending(): Promise<QueueRow[]> {
   }>('SELECT id, payload, photo_uri, attempts FROM checkin_queue ORDER BY created_at ASC');
   return rows.map((r) => ({
     ...(JSON.parse(r.payload) as QueuedCheckin),
-    photoUri: r.photo_uri,
+    photoUris: parsePhotoUris(r.photo_uri),
     attempts: r.attempts,
   }));
 }

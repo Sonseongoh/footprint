@@ -114,11 +114,11 @@ export default function RecordsScreen() {
                         ? cityNameKo(item.country, item.cityName)
                         : '체크인'}
                   </Text>
-                  {/* a check-in is always private (개인); 공유 is added on top when
+                  {/* every row is a check-in (private); 공유 is added on top when
                       its city also has a public 여행 공유 */}
                   <View style={styles.privateBadge}>
-                    <Ionicons name="lock-closed" size={10} color={Palette.muted} />
-                    <Text style={styles.privateBadgeText}>개인</Text>
+                    <Ionicons name="location" size={10} color={Palette.muted} />
+                    <Text style={styles.privateBadgeText}>체크인</Text>
                   </View>
                   {notedPlaces.has(`${item.country}:${item.regionId}`) && (
                     <View style={styles.noteBadge}>

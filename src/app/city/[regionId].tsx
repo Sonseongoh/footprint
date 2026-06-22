@@ -8,11 +8,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Modal,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -30,17 +32,22 @@ import { regionNameKo } from '@/data/names-ko';
 import { pickFromLibrary, takePhoto } from '@/lib/photo';
 import {
   deleteCityNote,
+  getCityNoteCount,
   getCityNotes,
   getMyNote,
   getWriteEligibility,
   MAX_NOTE_PHOTOS,
+  NOTES_PAGE_SIZE,
   postCityNote,
+  toggleLike,
   updateCityNote,
   WRITE_WINDOW_DAYS,
   type CityNote,
+  type NoteSort,
   type WriteEligibility,
 } from '@/lib/cityNotes';
 import { getMyProfile, setMyNickname } from '@/lib/profile';
+import { getRecords, type CheckinRecord } from '@/lib/records';
 import { COUNTRIES, type CountryCode } from '@/types/domain';
 
 function relativeDate(iso: string): string {
@@ -136,7 +143,15 @@ export default function CityScreen() {
     return country === 'KR' ? raw : regionNameKo(regionId, raw);
   }, [country, regionId]);
 
-  const [notes, setNotes] = useState<CityNote[]>([]);
+  const [otherNotes, setOtherNotes] = useState<CityNote[]>([]);
+  const [noteCount, setNoteCount] = useState(0);
+  const [sort, setSort] = useState<NoteSort>('popular');
+  const [loadingMore, setLoadingMore] = useState(false);
+  const sortRef = useRef<NoteSort>('popular');
+  const offsetRef = useRef(0);
+  const hasMoreRef = useRef(true);
+  const loadingRef = useRef(false);
+  const [myCheckins, setMyCheckins] = useState<CheckinRecord[]>([]);
   const [elig, setElig] = useState<WriteEligibility | null>(null);
   const [myNote, setMyNote] = useState<CityNote | null>(null);
   const [nickname, setNickname] = useState<string | null>(null);
@@ -153,24 +168,82 @@ export default function CityScreen() {
   // photos already on the note (edit mode), null for freshly picked local ones.
   const [photos, setPhotos] = useState<{ uri: string; existingPath: string | null }[]>([]);
 
+  // fetch one page of public notes (reset = restart from the top, e.g. on sort
+  // change or full reload; otherwise append for infinite scroll)
+  const fetchNotesPage = useCallback(
+    async (reset: boolean) => {
+      if (!reset && (loadingRef.current || !hasMoreRef.current)) return;
+      loadingRef.current = true;
+      if (reset) {
+        offsetRef.current = 0;
+        hasMoreRef.current = true;
+      } else {
+        setLoadingMore(true);
+      }
+      try {
+        const page = await getCityNotes(country, regionId, {
+          sort: sortRef.current,
+          offset: offsetRef.current,
+        });
+        offsetRef.current += page.length;
+        hasMoreRef.current = page.length === NOTES_PAGE_SIZE;
+        const others = page.filter((n) => !n.mine);
+        setOtherNotes((prev) => (reset ? others : [...prev, ...others]));
+      } finally {
+        loadingRef.current = false;
+        setLoadingMore(false);
+      }
+    },
+    [country, regionId],
+  );
+
   const load = useCallback(async () => {
-    const [n, e, mine, prof] = await Promise.all([
-      getCityNotes(country, regionId),
+    const [e, mine, prof, recs, count] = await Promise.all([
       getWriteEligibility(country, regionId),
       getMyNote(country, regionId),
       getMyProfile(),
+      getRecords(),
+      getCityNoteCount(country, regionId),
     ]);
-    setNotes(n);
+    setMyCheckins(recs.filter((r) => r.country === country && r.regionId === regionId));
     setElig(e);
     setMyNote(mine);
+    setNoteCount(count);
     setNickname(prof?.nickname ?? null);
     setDraft(mine?.body ?? '');
     setPhotos(
       mine ? mine.photoPaths.map((path, i) => ({ uri: mine.photoUrls[i], existingPath: path })) : [],
     );
     setEditing(false);
+    await fetchNotesPage(true);
     setLoaded(true);
-  }, [country, regionId]);
+  }, [country, regionId, fetchNotesPage]);
+
+  function changeSort(s: NoteSort) {
+    if (s === sortRef.current) return;
+    sortRef.current = s;
+    setSort(s);
+    fetchNotesPage(true);
+  }
+
+  function onToggleLike(note: CityNote) {
+    const liked = !note.likedByMe;
+    const apply = (d: number, on: boolean) =>
+      setOtherNotes((prev) =>
+        prev.map((n) =>
+          n.id === note.id ? { ...n, likedByMe: on, likeCount: Math.max(0, n.likeCount + d) } : n,
+        ),
+      );
+    apply(liked ? 1 : -1, liked); // optimistic
+    toggleLike(note.id, liked).catch(() => apply(liked ? -1 : 1, !liked)); // revert on error
+  }
+
+  function onNotesScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 400) {
+      fetchNotesPage(false);
+    }
+  }
 
   // discard edits and drop back to the read view (compose state ← my saved note)
   function cancelEdit() {
@@ -259,7 +332,6 @@ export default function CityScreen() {
 
   const canWrite = elig?.eligible ?? false;
   const canSave = !saving && draft.trim().length > 0 && (Boolean(nickname) || nickDraft.trim().length > 0);
-  const otherNotes = notes.filter((n) => !n.mine);
 
   return (
     <View style={styles.root}>
@@ -271,16 +343,57 @@ export default function CityScreen() {
           </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          onScroll={onNotesScroll}
+          scrollEventThrottle={400}>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.sub}>
-            {COUNTRIES[country].nameLocal} · 가본 사람들의 여행 공유 {notes.length}
+            {COUNTRIES[country].nameLocal} · 가본 사람들의 여행 공유 {noteCount}
           </Text>
 
           {!loaded ? (
             <ActivityIndicator color={Palette.gold} style={{ marginTop: Space.lg }} />
           ) : (
             <>
+              {/* ── 내 체크인 (private) ── */}
+              {myCheckins.length > 0 && (
+                <View style={styles.section}>
+                  <View style={styles.sectionHead}>
+                    <Ionicons name="lock-closed" size={13} color={Palette.muted} />
+                    <Text style={styles.sectionTitle}>내 체크인</Text>
+                    <Text style={styles.sectionTag}>나만 봐요</Text>
+                  </View>
+                  {myCheckins.map((c) => (
+                    <View key={c.id} style={styles.checkinRow}>
+                      {c.photoUrl ? (
+                        <Pressable onPress={() => setViewerUrl(c.photoUrl)}>
+                          <Image source={{ uri: c.photoUrl }} style={styles.checkinThumb} contentFit="cover" />
+                        </Pressable>
+                      ) : (
+                        <View style={[styles.checkinThumb, styles.checkinThumbEmpty]}>
+                          <Ionicons name="location" size={18} color={Palette.muted} />
+                        </View>
+                      )}
+                      <View style={styles.checkinBody}>
+                        <Text style={styles.checkinDate}>{relativeDate(c.createdAt)}</Text>
+                        <Text style={c.note ? styles.checkinNote : styles.checkinNoteEmpty}>
+                          {c.note ? `“${c.note}”` : '체크인 메모 없음'}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* ── 여행 공유 (public) ── */}
+              <View style={styles.sectionHead}>
+                <Ionicons name="earth" size={13} color={Palette.gold} />
+                <Text style={styles.sectionTitleGold}>여행 공유</Text>
+                <Text style={styles.sectionTagGold}>공개</Text>
+              </View>
+
               {/* my existing note — read view with an explicit 수정 button */}
               {myNote && !editing && (
                 <View style={styles.myNoteCard}>
@@ -294,6 +407,12 @@ export default function CityScreen() {
                   </View>
                   <Text style={styles.noteBody}>{myNote.body}</Text>
                   <NotePhotos urls={myNote.photoUrls} onPress={setViewerUrl} />
+                  {myNote.likeCount > 0 && (
+                    <View style={styles.likeBtn}>
+                      <Ionicons name="heart" size={16} color={Palette.gold} />
+                      <Text style={styles.likeCount}>{myNote.likeCount}</Text>
+                    </View>
+                  )}
                   {canWrite ? (
                     <View style={styles.cardFooter}>
                       {elig?.expiresAt && (
@@ -398,12 +517,26 @@ export default function CityScreen() {
             </>
           )}
 
+          {/* sort toggle for everyone else's shares */}
+          {loaded && otherNotes.length > 0 && (
+            <View style={styles.sortRow}>
+              <Pressable onPress={() => changeSort('popular')} hitSlop={6}>
+                <Text style={[styles.sortItem, sort === 'popular' && styles.sortItemOn]}>추천순</Text>
+              </Pressable>
+              <Text style={styles.sortDot}>·</Text>
+              <Pressable onPress={() => changeSort('recent')} hitSlop={6}>
+                <Text style={[styles.sortItem, sort === 'recent' && styles.sortItemOn]}>신규순</Text>
+              </Pressable>
+            </View>
+          )}
+
           {/* everyone else's */}
           <View style={styles.notesList}>
             {otherNotes.map((n) => (
-              <NoteRow key={n.id} note={n} onPhotoPress={setViewerUrl} />
+              <NoteRow key={n.id} note={n} onPhotoPress={setViewerUrl} onToggleLike={onToggleLike} />
             ))}
-            {loaded && notes.length === 0 && (
+            {loadingMore && <ActivityIndicator color={Palette.gold} style={{ marginVertical: Space.md }} />}
+            {loaded && noteCount === 0 && (
               <Text style={styles.emptyNotes}>아직 이 도시의 여행 공유가 없어요. 첫 공유를 남겨보세요.</Text>
             )}
           </View>
@@ -446,10 +579,12 @@ function NoteRow({
   note,
   mineLabel,
   onPhotoPress,
+  onToggleLike,
 }: {
   note: CityNote;
   mineLabel?: boolean;
   onPhotoPress?: (url: string) => void;
+  onToggleLike?: (note: CityNote) => void;
 }) {
   return (
     <View style={styles.noteRow}>
@@ -459,6 +594,19 @@ function NoteRow({
       </View>
       <Text style={styles.noteBody}>{note.body}</Text>
       <NotePhotos urls={note.photoUrls} onPress={(u) => onPhotoPress?.(u)} />
+      <View style={styles.noteFooter}>
+        <Pressable
+          style={styles.likeBtn}
+          hitSlop={8}
+          onPress={onToggleLike ? () => onToggleLike(note) : undefined}>
+          <Ionicons
+            name={note.likedByMe ? 'heart' : 'heart-outline'}
+            size={18}
+            color={note.likedByMe ? Palette.gold : Palette.muted}
+          />
+          {note.likeCount > 0 && <Text style={styles.likeCount}>{note.likeCount}</Text>}
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -471,6 +619,45 @@ const styles = StyleSheet.create({
   scroll: { padding: Space.lg, paddingBottom: Space.xxl, gap: Space.sm },
   title: { color: Palette.ink, fontSize: 28, fontWeight: '800' },
   sub: { color: Palette.muted, fontSize: 14, marginBottom: Space.sm },
+
+  section: { gap: Space.sm, marginBottom: Space.lg },
+  sectionHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: Space.sm },
+  sectionTitle: { color: Palette.ink, fontSize: 16, fontWeight: '800' },
+  sectionTitleGold: { color: Palette.gold, fontSize: 16, fontWeight: '800' },
+  sectionTag: {
+    color: Palette.muted,
+    fontSize: 11,
+    fontWeight: '700',
+    backgroundColor: 'rgba(136,147,184,0.16)',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  sectionTagGold: {
+    color: Palette.gold,
+    fontSize: 11,
+    fontWeight: '700',
+    backgroundColor: 'rgba(245,194,107,0.14)',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  checkinRow: {
+    flexDirection: 'row',
+    gap: Space.md,
+    alignItems: 'center',
+    backgroundColor: Palette.bgElevated,
+    borderRadius: 14,
+    padding: Space.sm,
+    borderWidth: 1,
+    borderColor: Palette.surfaceLine,
+  },
+  checkinThumb: { width: 52, height: 52, borderRadius: 10, backgroundColor: Palette.surface },
+  checkinThumbEmpty: { alignItems: 'center', justifyContent: 'center' },
+  checkinBody: { flex: 1, gap: 2 },
+  checkinDate: { color: Palette.muted, fontSize: 12 },
+  checkinNote: { color: Palette.ink, fontSize: 14 },
+  checkinNoteEmpty: { color: Palette.muted, fontSize: 13, fontStyle: 'italic' },
 
   composeCard: {
     backgroundColor: Palette.bgElevated,
@@ -580,6 +767,13 @@ const styles = StyleSheet.create({
   author: { color: Palette.gold, fontSize: 14, fontWeight: '700' },
   noteDate: { color: Palette.muted, fontSize: 12 },
   noteBody: { color: Palette.ink, fontSize: 15, lineHeight: 22 },
+  noteFooter: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2 },
+  likeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 },
+  likeCount: { color: Palette.muted, fontSize: 13, fontWeight: '700' },
+  sortRow: { flexDirection: 'row', alignItems: 'center', gap: Space.sm, marginTop: Space.md },
+  sortItem: { color: Palette.muted, fontSize: 13, fontWeight: '600' },
+  sortItemOn: { color: Palette.gold, fontWeight: '800' },
+  sortDot: { color: Palette.surfaceLine, fontSize: 13 },
   notePhoto: { width: '100%', height: 200, borderRadius: 10, marginTop: 4, backgroundColor: Palette.surface },
   notePhotoStrip: { gap: Space.sm, marginTop: 4, paddingRight: 36 },
   notePhotoThumb: { width: 132, height: 132, borderRadius: 10, backgroundColor: Palette.surface },

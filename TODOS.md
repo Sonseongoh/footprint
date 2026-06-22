@@ -2,6 +2,19 @@
 
 이번 /plan-eng-review (2026-06-02)에서 v1 스코프 밖으로 보류한 항목들. 기록만 해둔 것이며 실행 여부는 추후 결정.
 
+## 보안 (출시 전 필수) — Security, MUST before launch
+
+### [ ] city_notes.like_count 클라이언트 쓰기 차단 (가짜 좋아요 방지)
+- **What:** `like_count`(및 향후 비정규화 카운터)를 클라이언트가 직접 INSERT/UPDATE 못 하게 막기. 좋아요 트리거(`apply_note_like`)만 변경 가능하게.
+- **Why:** anon 키는 앱에 들어있어 공개됨 → 누구나 API 직접 호출로 `like_count: 99999` 주입 가능 → 가짜 좋아요·**추천순 정렬 조작**. 추천 보드의 신뢰가 무너짐. (앱 자체는 like_count를 직접 안 쓰지만 DB가 강제하지 않음.)
+- **How:** 마이그레이션(≈0011) 컬럼 단위 revoke — SECURITY DEFINER 트리거(테이블 소유자 권한)만 통과:
+  ```sql
+  revoke insert (like_count), update (like_count)
+    on public.city_notes from anon, authenticated;
+  ```
+- **주의:** 적용하면 `scripts/seed-busan-bulk.js` 등 like_count를 직접 넣는 시드가 깨짐 → **더미 데이터는 막기 전에 다 만들 것.**
+- **상태:** 2026-06-22 보류(시드 더 만들 수 있게). 준비되면 적용.
+
 ## 우선 (Priority)
 
 ### [ ] EXIF 사후 복구

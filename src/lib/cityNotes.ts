@@ -17,6 +17,12 @@ const WINDOW_MS = WRITE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 /** Max photos attachable to one note. */
 export const MAX_NOTE_PHOTOS = 5;
 
+/** How many notes to fetch per page (infinite scroll). */
+export const NOTES_PAGE_SIZE = 15;
+
+/** Sort order for the public 여행 공유 list. */
+export type NoteSort = 'recent' | 'popular';
+
 export interface CityNote {
   id: string;
   userId: string;
@@ -34,6 +40,10 @@ export interface CityNote {
   authorNickname: string;
   /** true when this note belongs to the signed-in user */
   mine: boolean;
+  /** number of likes */
+  likeCount: number;
+  /** whether the signed-in user has liked this note */
+  likedByMe: boolean;
 }
 
 export interface WriteEligibility {
@@ -44,22 +54,39 @@ export interface WriteEligibility {
   expiresAt: string | null;
 }
 
-/** Public notes for a place, newest first, with author nicknames resolved. */
-export async function getCityNotes(country: CountryCode, regionId: string): Promise<CityNote[]> {
+/**
+ * One page of public notes for a place. `sort` is 신규순(recent) or 추천순(popular,
+ * by like count); `offset` drives infinite scroll. Resolves author nicknames and
+ * the signed-in user's like state per note.
+ */
+export async function getCityNotes(
+  country: CountryCode,
+  regionId: string,
+  opts: { sort: NoteSort; offset: number; limit?: number },
+): Promise<CityNote[]> {
+  const limit = opts.limit ?? NOTES_PAGE_SIZE;
   const { data: session } = await supabase.auth.getSession();
   const myId = session.session?.user?.id ?? null;
 
-  const { data, error } = await supabase
+  let q = supabase
     .from('city_notes')
-    .select('id, user_id, country, region_id, city_name, body, created_at, updated_at, photo_paths')
+    .select('id, user_id, country, region_id, city_name, body, created_at, updated_at, photo_paths, like_count')
     .eq('country', country)
     .eq('region_id', regionId)
-    .eq('is_visible', true)
-    .order('created_at', { ascending: false })
-    .limit(100);
+    .eq('is_visible', true);
+  q =
+    opts.sort === 'popular'
+      ? q.order('like_count', { ascending: false }).order('created_at', { ascending: false })
+      : q.order('created_at', { ascending: false });
+  const { data, error } = await q.range(opts.offset, opts.offset + limit - 1);
   if (error || !data) return [];
 
-  const nicks = await getNicknames(data.map((r) => r.user_id));
+  const ids = data.map((r) => r.id);
+  const [nicks, liked] = await Promise.all([
+    getNicknames(data.map((r) => r.user_id)),
+    likedNoteIds(myId, ids),
+  ]);
+
   return data.map((r) => {
     const paths: string[] = r.photo_paths ?? [];
     return {
@@ -75,8 +102,53 @@ export async function getCityNotes(country: CountryCode, regionId: string): Prom
       photoUrls: paths.map(notePhotoUrl),
       authorNickname: nicks.get(r.user_id) ?? '방문자',
       mine: r.user_id === myId,
+      likeCount: r.like_count ?? 0,
+      likedByMe: liked.has(r.id),
     };
   });
+}
+
+/** Total number of visible notes for a place (for the header count). */
+export async function getCityNoteCount(country: CountryCode, regionId: string): Promise<number> {
+  const { count } = await supabase
+    .from('city_notes')
+    .select('id', { count: 'exact', head: true })
+    .eq('country', country)
+    .eq('region_id', regionId)
+    .eq('is_visible', true);
+  return count ?? 0;
+}
+
+/** Which of the given note ids the user has liked. */
+async function likedNoteIds(userId: string | null, noteIds: string[]): Promise<Set<string>> {
+  if (!userId || noteIds.length === 0) return new Set();
+  const { data } = await supabase
+    .from('city_note_likes')
+    .select('note_id')
+    .eq('user_id', userId)
+    .in('note_id', noteIds);
+  return new Set((data ?? []).map((l) => l.note_id));
+}
+
+/** Like or unlike a note (`liked` = the desired new state). */
+export async function toggleLike(noteId: string, liked: boolean): Promise<void> {
+  const { data: session } = await supabase.auth.getSession();
+  const userId = session.session?.user?.id;
+  if (!userId) throw new Error('로그인(백엔드 연결)이 필요합니다');
+  if (liked) {
+    const { error } = await supabase
+      .from('city_note_likes')
+      .insert({ note_id: noteId, user_id: userId });
+    // ignore duplicate (already liked)
+    if (error && !/duplicate key/i.test(error.message)) throw error;
+  } else {
+    const { error } = await supabase
+      .from('city_note_likes')
+      .delete()
+      .eq('note_id', noteId)
+      .eq('user_id', userId);
+    if (error) throw error;
+  }
 }
 
 /**
@@ -135,7 +207,7 @@ export async function getMyNote(country: CountryCode, regionId: string): Promise
   if (!userId) return null;
   const { data } = await supabase
     .from('city_notes')
-    .select('id, user_id, country, region_id, city_name, body, created_at, updated_at, photo_paths')
+    .select('id, user_id, country, region_id, city_name, body, created_at, updated_at, photo_paths, like_count')
     .eq('user_id', userId)
     .eq('country', country)
     .eq('region_id', regionId)
@@ -157,6 +229,8 @@ export async function getMyNote(country: CountryCode, regionId: string): Promise
     photoUrls: paths.map(notePhotoUrl),
     authorNickname: '나',
     mine: true,
+    likeCount: data.like_count ?? 0,
+    likedByMe: false,
   };
 }
 

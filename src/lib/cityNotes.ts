@@ -200,6 +200,40 @@ export async function getMyNotedPlaceKeys(): Promise<Set<string>> {
   return out;
 }
 
+/** All of the signed-in user's 여행 공유, newest first (for the 내 발자국 screen). */
+export async function getMyNotes(): Promise<CityNote[]> {
+  const { data: session } = await supabase.auth.getSession();
+  const userId = session.session?.user?.id;
+  if (!userId) return [];
+  const { data } = await supabase
+    .from('city_notes')
+    .select('id, user_id, country, region_id, city_name, body, created_at, updated_at, photo_paths, like_count')
+    .eq('user_id', userId)
+    .eq('is_visible', true)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (!data) return [];
+  return data.map((r) => {
+    const paths: string[] = r.photo_paths ?? [];
+    return {
+      id: r.id,
+      userId: r.user_id,
+      country: r.country as CountryCode,
+      regionId: r.region_id,
+      cityName: r.city_name,
+      body: r.body,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      photoPaths: paths,
+      photoUrls: paths.map(notePhotoUrl),
+      authorNickname: '나',
+      mine: true,
+      likeCount: r.like_count ?? 0,
+      likedByMe: false,
+    };
+  });
+}
+
 /** The signed-in user's own note for this place (one per place in the UI), if any. */
 export async function getMyNote(country: CountryCode, regionId: string): Promise<CityNote | null> {
   const { data: session } = await supabase.auth.getSession();

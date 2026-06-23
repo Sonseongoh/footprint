@@ -44,6 +44,14 @@ export default function AppTabs() {
           sf={{ default: 'map', selected: 'map.fill' }}
         />
       </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="me">
+        <NativeTabs.Trigger.Label>나</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon
+          md={{ default: 'person', selected: 'person' }}
+          sf={{ default: 'person', selected: 'person.fill' }}
+        />
+      </NativeTabs.Trigger>
     </NativeTabs>
   );
 }

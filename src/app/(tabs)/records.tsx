@@ -94,12 +94,7 @@ export default function RecordsScreen() {
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safe}>
-        <View style={styles.titleRow}>
-          <Text style={styles.title}>기록</Text>
-          <Pressable onPress={() => router.push('/account')} hitSlop={10} style={styles.accountBtn}>
-            <Ionicons name="person-circle-outline" size={28} color={Palette.muted} />
-          </Pressable>
-        </View>
+        <Text style={styles.title}>기록</Text>
 
         {presentCountries.length > 1 && (
           <View style={styles.filterRow}>
@@ -201,14 +196,7 @@ export default function RecordsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Palette.bg },
   safe: { flex: 1, paddingHorizontal: Space.lg },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginVertical: Space.md,
-  },
-  title: { color: Palette.ink, fontSize: 24, fontWeight: '800' },
-  accountBtn: { padding: 2 },
+  title: { color: Palette.ink, fontSize: 24, fontWeight: '800', marginVertical: Space.md },
   filterRow: { flexDirection: 'row', gap: Space.sm, marginBottom: Space.md },
   chip: {
     paddingHorizontal: Space.md,

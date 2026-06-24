@@ -15,6 +15,20 @@
 - **주의:** 적용하면 `scripts/seed-busan-bulk.js` 등 like_count를 직접 넣는 시드가 깨짐 → **더미 데이터는 막기 전에 다 만들 것.**
 - **상태:** 2026-06-22 보류(시드 더 만들 수 있게). 준비되면 적용.
 
+## 출시 설정 — 직접 해야 하는 외부 작업 (코드는 완료)
+
+### [ ] 마이그레이션 0012·0013 적용 (Supabase SQL Editor)
+- `0012_note_reports.sql` — 여행 공유 신고(`city_note_reports`) + 신고 3건 시 자동 숨김 트리거.
+- `0013_account_deletion.sql` — `delete_account()` RPC(계정+데이터 영구 삭제, on delete cascade).
+- 둘 다 대시보드 SQL Editor에 붙여넣어 실행하면 끝.
+
+### [ ] 구글 로그인 — Supabase + Google Cloud 설정 (앱 코드는 완료)
+- **Supabase** → Auth → Providers → Google **Enable**, Google에서 발급한 Client ID/Secret 입력.
+- **Supabase** → Auth → URL Configuration → Redirect URLs에 `footprint://auth-callback` 추가.
+- 익명 게스트→구글 연결(linkIdentity)을 쓰므로 Auth → "Manual linking" / "Allow anonymous sign-ins" 가 켜져 있어야 함(익명은 이미 사용 중).
+- **Google Cloud Console** → OAuth 동의 화면 + OAuth 클라이언트(Web) 생성, 승인된 리디렉션 URI에 Supabase 콜백(`https://ayuvcvwrkjjlqsfnqaxm.supabase.co/auth/v1/callback`) 추가.
+- 설정 전까지 앱의 "Google로 계속하기"는 provider 미설정 에러를 띄움(친절 메시지 처리됨).
+
 ## 우선 (Priority)
 
 ### [ ] EXIF 사후 복구

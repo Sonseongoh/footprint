@@ -39,6 +39,7 @@ import {
   MAX_NOTE_PHOTOS,
   NOTES_PAGE_SIZE,
   postCityNote,
+  reportNote,
   toggleLike,
   updateCityNote,
   WRITE_WINDOW_DAYS,
@@ -236,6 +237,21 @@ export default function CityScreen() {
       );
     apply(liked ? 1 : -1, liked); // optimistic
     toggleLike(note.id, liked).catch(() => apply(liked ? -1 : 1, !liked)); // revert on error
+  }
+
+  function onReport(note: CityNote) {
+    Alert.alert('신고', '이 여행 공유를 부적절한 내용으로 신고할까요?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '신고',
+        style: 'destructive',
+        onPress: () => {
+          reportNote(note.id)
+            .then(() => Alert.alert('신고됐어요', '검토 후 조치할게요. 알려주셔서 감사합니다.'))
+            .catch((e) => Alert.alert('신고 실패', e instanceof Error ? e.message : ''));
+        },
+      },
+    ]);
   }
 
   function onNotesScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
@@ -549,7 +565,13 @@ export default function CityScreen() {
           {/* everyone else's */}
           <View style={styles.notesList}>
             {otherNotes.map((n) => (
-              <NoteRow key={n.id} note={n} onPhotoPress={setViewerUrl} onToggleLike={onToggleLike} />
+              <NoteRow
+                key={n.id}
+                note={n}
+                onPhotoPress={setViewerUrl}
+                onToggleLike={onToggleLike}
+                onReport={onReport}
+              />
             ))}
             {loadingMore && <ActivityIndicator color={Palette.gold} style={{ marginVertical: Space.md }} />}
             {loaded && noteCount === 0 && (
@@ -596,11 +618,13 @@ function NoteRow({
   mineLabel,
   onPhotoPress,
   onToggleLike,
+  onReport,
 }: {
   note: CityNote;
   mineLabel?: boolean;
   onPhotoPress?: (url: string) => void;
   onToggleLike?: (note: CityNote) => void;
+  onReport?: (note: CityNote) => void;
 }) {
   return (
     <View style={styles.noteRow}>
@@ -611,6 +635,15 @@ function NoteRow({
       <Text style={styles.noteBody}>{note.body}</Text>
       <NotePhotos urls={note.photoUrls} onPress={(u) => onPhotoPress?.(u)} />
       <View style={styles.noteFooter}>
+        {/* report — only on other people's shares */}
+        {onReport && !note.mine ? (
+          <Pressable style={styles.reportBtn} hitSlop={8} onPress={() => onReport(note)}>
+            <Ionicons name="flag-outline" size={14} color={Palette.muted} />
+            <Text style={styles.reportText}>신고</Text>
+          </Pressable>
+        ) : (
+          <View />
+        )}
         <Pressable
           style={styles.likeBtn}
           hitSlop={8}
@@ -796,7 +829,9 @@ const styles = StyleSheet.create({
   author: { color: Palette.gold, fontSize: 14, fontWeight: '700' },
   noteDate: { color: Palette.muted, fontSize: 12 },
   noteBody: { color: Palette.ink, fontSize: 15, lineHeight: 22 },
-  noteFooter: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2 },
+  noteFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
+  reportBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 },
+  reportText: { color: Palette.muted, fontSize: 12, fontWeight: '600' },
   likeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 },
   likeCount: { color: Palette.muted, fontSize: 13, fontWeight: '700' },
   sortRow: { flexDirection: 'row', alignItems: 'center', gap: Space.sm, marginTop: Space.md },

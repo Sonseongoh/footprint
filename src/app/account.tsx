@@ -4,7 +4,7 @@
  * Reached from the records tab header.
  */
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,9 +17,20 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Ionicons } from '@expo/vector-icons';
+
 import { Palette, Space } from '@/constants/footprint-theme';
-import { getAuthState, signInWithEmail, signOutToGuest, signUpWithEmail, type AuthState } from '@/lib/auth';
+import {
+  deleteAccount,
+  getAuthState,
+  signInWithEmail,
+  signInWithGoogle,
+  signOutToGuest,
+  signUpWithEmail,
+  type AuthState,
+} from '@/lib/auth';
 import { getMyProfile, setMyNickname } from '@/lib/profile';
+import { supabase } from '@/lib/supabase';
 
 export default function AccountScreen() {
   const router = useRouter();
@@ -44,6 +55,17 @@ export default function AccountScreen() {
       };
     }, [load]),
   );
+
+  // re-read identity whenever the session changes (e.g. Google sign-in finishing
+  // asynchronously in the /auth-callback route) so the screen never lags behind.
+  // NOTE: Supabase warns against calling auth methods *inside* the callback (it
+  // runs under the auth lock) — defer with setTimeout(0) to avoid a deadlock.
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange(() => {
+      setTimeout(() => load().catch(() => {}), 0);
+    });
+    return () => data.subscription.unsubscribe();
+  }, [load]);
 
   async function onSaveNickname() {
     if (busy) return;
@@ -93,6 +115,58 @@ export default function AccountScreen() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function onGoogle() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const { canceled } = await signInWithGoogle();
+      if (!canceled) {
+        await load();
+        Alert.alert('로그인됨', '구글 계정으로 로그인했어요.');
+      }
+    } catch (err) {
+      Alert.alert('구글 로그인 실패', err instanceof Error ? err.message : '');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onDeleteAccount() {
+    Alert.alert(
+      '계정 삭제',
+      '계정과 모든 기록(체크인, 지도, 여행 공유, 사진)이 영구 삭제됩니다. 되돌릴 수 없어요.',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: () =>
+            Alert.alert('정말 삭제할까요?', '이 작업은 되돌릴 수 없습니다.', [
+              { text: '취소', style: 'cancel' },
+              {
+                text: '영구 삭제',
+                style: 'destructive',
+                onPress: async () => {
+                  setBusy(true);
+                  try {
+                    await deleteAccount();
+                    setEmail('');
+                    setPassword('');
+                    await load();
+                    Alert.alert('삭제됐어요', '계정과 모든 기록이 삭제되었습니다.');
+                  } catch (err) {
+                    Alert.alert('삭제 실패', err instanceof Error ? err.message : '');
+                  } finally {
+                    setBusy(false);
+                  }
+                },
+              },
+            ]),
+        },
+      ],
+    );
   }
 
   function onSignOut() {
@@ -202,6 +276,20 @@ export default function AccountScreen() {
                     <Text style={styles.btnText}>회원가입</Text>
                   </Pressable>
                 </View>
+
+                <View style={styles.divider}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>또는</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+
+                <Pressable
+                  style={[styles.googleBtn, busy && styles.btnDim]}
+                  disabled={busy}
+                  onPress={onGoogle}>
+                  <Ionicons name="logo-google" size={18} color={Palette.ink} />
+                  <Text style={styles.googleText}>Google로 계속하기</Text>
+                </Pressable>
               </View>
             ) : (
               <Pressable
@@ -211,6 +299,14 @@ export default function AccountScreen() {
                 <Text style={styles.signOutText}>로그아웃</Text>
               </Pressable>
             )}
+
+            {/* danger zone — permanent account & data deletion (store compliance) */}
+            <Pressable
+              style={[styles.deleteBtn, busy && styles.btnDim]}
+              disabled={busy}
+              onPress={onDeleteAccount}>
+              <Text style={styles.deleteText}>계정 삭제</Text>
+            </Pressable>
           </ScrollView>
         )}
       </SafeAreaView>
@@ -262,6 +358,23 @@ const styles = StyleSheet.create({
   },
   btnOutlineText: { color: Palette.gold, fontSize: 14, fontWeight: '700' },
   authRow: { flexDirection: 'row', alignItems: 'center', gap: Space.sm },
+  divider: { flexDirection: 'row', alignItems: 'center', gap: Space.sm, marginVertical: 2 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: Palette.surfaceLine },
+  dividerText: { color: Palette.muted, fontSize: 12, fontWeight: '600' },
+  googleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Space.sm,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.surfaceLine,
+    borderRadius: 10,
+    paddingVertical: Space.sm,
+  },
+  googleText: { color: Palette.ink, fontSize: 14, fontWeight: '700' },
+  deleteBtn: { alignItems: 'center', paddingVertical: Space.md, marginTop: Space.sm },
+  deleteText: { color: '#E5705B', fontSize: 14, fontWeight: '700' },
   signOutBtn: {
     borderWidth: 1,
     borderColor: Palette.surfaceLine,

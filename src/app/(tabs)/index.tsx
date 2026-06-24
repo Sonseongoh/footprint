@@ -8,8 +8,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as Location from 'expo-location';
-import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -25,9 +25,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Palette, Space } from '@/constants/footprint-theme';
 import { loadFillUnits, resolveCheckin, type ResolvedCheckin } from '@/data';
 import { cityDisplayKo, regionNameKo } from '@/data/names-ko';
+import { getAuthState } from '@/lib/auth';
 import { recordCheckin } from '@/lib/checkinService';
 import { pickFromLibrary, takePhoto } from '@/lib/photo';
-import { ensureAnonymousSession } from '@/lib/supabase';
+import { ensureAnonymousSession, supabase } from '@/lib/supabase';
 import { COUNTRIES, type Position } from '@/types/domain';
 
 type Phase = 'idle' | 'locating' | 'result' | 'denied' | 'done';
@@ -53,9 +54,12 @@ export default function CheckinScreen() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [backendReady, setBackendReady] = useState<boolean | null>(null);
+  // Guests (anonymous session) can't check in — we route them to login so their
+  // footprints are tied to a real account, not an orphaned anonymous user.
+  const [isGuest, setIsGuest] = useState(true);
 
-  // Deferred auth: try an anonymous session on launch. Without a configured
-  // backend this fails — the verify+local-record demo still works.
+  // Deferred auth: ensure a session exists (anonymous on first launch) so the
+  // backend is reachable. Whether the user is a *guest* gates check-in below.
   useEffect(() => {
     ensureAnonymousSession()
       .then((id) => {
@@ -64,6 +68,24 @@ export default function CheckinScreen() {
       })
       .catch(() => setBackendReady(false));
   }, []);
+
+  const refreshAuth = useCallback(async () => {
+    const a = await getAuthState();
+    setIsGuest(a.isAnonymous);
+  }, []);
+
+  // refresh guest state on focus + whenever the session changes (login/logout)
+  useFocusEffect(
+    useCallback(() => {
+      refreshAuth().catch(() => {});
+    }, [refreshAuth]),
+  );
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange(() => {
+      setTimeout(() => refreshAuth().catch(() => {}), 0);
+    });
+    return () => data.subscription.unsubscribe();
+  }, [refreshAuth]);
 
   function regionDisplayName(country: ResolvedCheckin['country'], regionId: string | null) {
     if (!country || !regionId) return '';
@@ -80,6 +102,10 @@ export default function CheckinScreen() {
   }
 
   async function handleCheckin() {
+    if (isGuest) {
+      router.push('/account'); // login required before any check-in
+      return;
+    }
     setPhase('locating');
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
@@ -96,6 +122,10 @@ export default function CheckinScreen() {
   }
 
   async function handleRecord() {
+    if (isGuest) {
+      router.push('/account'); // safety net: dev test points bypass handleCheckin
+      return;
+    }
     if (!result?.ok || !result.country || !coords) return;
     await recordCheckin({
       userId: userId ?? 'local-only',
@@ -165,7 +195,16 @@ export default function CheckinScreen() {
 
           {phase === 'idle' && (
             <View style={styles.center}>
-              <Text style={styles.hint}>지금 있는 곳을 체크인해 어느 지역인지 인증해보세요.</Text>
+              {isGuest ? (
+                <>
+                  <Ionicons name="lock-closed-outline" size={30} color={Palette.muted} />
+                  <Text style={styles.hint}>
+                    체크인하려면 로그인이 필요해요.{'\n'}로그인하면 어디서든 발자국이 안전하게 저장돼요.
+                  </Text>
+                </>
+              ) : (
+                <Text style={styles.hint}>지금 있는 곳을 체크인해 어느 지역인지 인증해보세요.</Text>
+              )}
             </View>
           )}
 
@@ -283,7 +322,9 @@ export default function CheckinScreen() {
               style={styles.primary}
               disabled={phase === 'locating'}
               onPress={handleCheckin}>
-              <Text style={styles.primaryText}>＋ 지금 여기 체크인</Text>
+              <Text style={styles.primaryText}>
+                {isGuest ? '로그인하고 체크인하기' : '＋ 지금 여기 체크인'}
+              </Text>
             </Pressable>
           )}
           {phase === 'result' && result?.ok && (
@@ -296,7 +337,7 @@ export default function CheckinScreen() {
               <Text style={styles.secondaryText}>다시</Text>
             </Pressable>
           )}
-          {phase === 'idle' && (
+          {phase === 'idle' && !isGuest && (
             <View style={styles.devRow}>
               {TEST_POINTS.map((t) => (
                 <Pressable key={t.label} style={styles.devBtn} onPress={() => runResolve(t.pos, 15)}>

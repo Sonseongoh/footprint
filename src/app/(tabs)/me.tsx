@@ -6,7 +6,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   type LayoutChangeEvent,
@@ -20,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
 import { getAuthState } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import { getMyNotes, type CityNote } from '@/lib/cityNotes';
 import { getMyProfile } from '@/lib/profile';
 import { getRecords } from '@/lib/records';
@@ -80,6 +81,17 @@ export default function MeScreen() {
     }, [load]),
   );
 
+  // refresh when the session changes (login/logout/Google finishing async) so the
+  // guest banner and stats reflect the current account without needing a re-focus.
+  // Defer with setTimeout(0): Supabase warns against calling auth methods inside
+  // the onAuthStateChange callback (it holds the auth lock → potential deadlock).
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange(() => {
+      setTimeout(() => load().catch(() => {}), 0);
+    });
+    return () => data.subscription.unsubscribe();
+  }, [load]);
+
   return (
     <View style={styles.root}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -96,6 +108,22 @@ export default function MeScreen() {
         ) : (
           <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll}>
             <Text style={styles.who}>{isGuest ? '게스트' : nickname || '여행자'}</Text>
+
+            {/* guest → login nudge: this is the primary entry point to sign in */}
+            {isGuest && (
+              <Pressable style={styles.loginCard} onPress={() => router.push('/account')}>
+                <View style={styles.loginIcon}>
+                  <Ionicons name="person-circle-outline" size={26} color={Palette.gold} />
+                </View>
+                <View style={styles.loginBody}>
+                  <Text style={styles.loginTitle}>로그인하고 기록 지키기</Text>
+                  <Text style={styles.loginSub}>
+                    게스트는 앱을 지우면 발자국이 사라져요. 계정을 만들면 안전하게 보관돼요.
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Palette.muted} />
+              </Pressable>
+            )}
 
             {/* summary — tap a stat to jump to its section */}
             <View style={styles.summary}>
@@ -211,6 +239,29 @@ const styles = StyleSheet.create({
   scroll: { padding: Space.lg, gap: Space.md, paddingBottom: Space.xxl },
   title: { color: Palette.ink, fontSize: 24, fontWeight: '800' },
   who: { color: Palette.gold, fontSize: 16, fontWeight: '700' },
+
+  loginCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Space.sm,
+    backgroundColor: Palette.bgElevated,
+    borderRadius: 16,
+    padding: Space.md,
+    borderWidth: 1,
+    borderColor: Palette.gold,
+    marginTop: Space.xs,
+  },
+  loginIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(245,194,107,0.12)',
+  },
+  loginBody: { flex: 1, gap: 2 },
+  loginTitle: { color: Palette.ink, fontSize: 15, fontWeight: '800' },
+  loginSub: { color: Palette.muted, fontSize: 12, lineHeight: 17 },
 
   summary: {
     flexDirection: 'row',

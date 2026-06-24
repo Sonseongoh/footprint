@@ -90,6 +90,10 @@ export const supabase = createClient(
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,
+      // PKCE puts the auth code in the redirect *query* (?code=) so the native
+      // deep link / expo-router can read it; implicit-flow tokens land in the
+      // URL fragment, which routing strips.
+      flowType: 'pkce',
     },
   },
 );

@@ -351,3 +351,19 @@ export async function deleteCityNote(id: string): Promise<void> {
   const { error } = await supabase.from('city_notes').delete().eq('id', id);
   if (error) throw new Error(error.message);
 }
+
+/**
+ * Report a 여행 공유 as abusive. One report per user per note (duplicates are a
+ * no-op). Enough distinct reports auto-hides the note server-side (see
+ * 0012_note_reports.sql). `reason` is optional free text.
+ */
+export async function reportNote(noteId: string, reason?: string): Promise<void> {
+  const { data: session } = await supabase.auth.getSession();
+  const userId = session.session?.user?.id;
+  if (!userId) throw new Error('로그인(백엔드 연결)이 필요합니다');
+  const { error } = await supabase
+    .from('city_note_reports')
+    .insert({ note_id: noteId, reporter_id: userId, reason: reason ?? null });
+  // already reported → treat as success (idempotent from the user's view)
+  if (error && !/duplicate key/i.test(error.message)) throw new Error(error.message);
+}

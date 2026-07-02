@@ -15,19 +15,28 @@
 - **주의:** 적용하면 `scripts/seed-busan-bulk.js` 등 like_count를 직접 넣는 시드가 깨짐 → **더미 데이터는 막기 전에 다 만들 것.**
 - **상태:** 2026-06-22 보류(시드 더 만들 수 있게). 준비되면 적용.
 
-## 출시 설정 — 직접 해야 하는 외부 작업 (코드는 완료)
+## 출시 설정 — 직접 해야 하는 외부 작업
 
-### [ ] 마이그레이션 0012·0013 적용 (Supabase SQL Editor)
-- `0012_note_reports.sql` — 여행 공유 신고(`city_note_reports`) + 신고 3건 시 자동 숨김 트리거.
-- `0013_account_deletion.sql` — `delete_account()` RPC(계정+데이터 영구 삭제, on delete cascade).
-- 둘 다 대시보드 SQL Editor에 붙여넣어 실행하면 끝.
+### [x] 마이그레이션 0012·0013·0014 적용 (완료 2026-07-02)
+- 0012 신고 + 자동 숨김 / 0013 계정 삭제 RPC / 0014 게스트 쓰기 차단 — 전부 적용 확인됨.
 
-### [ ] 구글 로그인 — Supabase + Google Cloud 설정 (앱 코드는 완료)
-- **Supabase** → Auth → Providers → Google **Enable**, Google에서 발급한 Client ID/Secret 입력.
-- **Supabase** → Auth → URL Configuration → Redirect URLs에 `footprint://auth-callback` 추가.
-- 익명 게스트→구글 연결(linkIdentity)을 쓰므로 Auth → "Manual linking" / "Allow anonymous sign-ins" 가 켜져 있어야 함(익명은 이미 사용 중).
-- **Google Cloud Console** → OAuth 동의 화면 + OAuth 클라이언트(Web) 생성, 승인된 리디렉션 URI에 Supabase 콜백(`https://ayuvcvwrkjjlqsfnqaxm.supabase.co/auth/v1/callback`) 추가.
-- 설정 전까지 앱의 "Google로 계속하기"는 provider 미설정 에러를 띄움(친절 메시지 처리됨).
+### [x] 구글 로그인 설정 (완료 2026-07-02)
+- Google Cloud OAuth 클라이언트(Web) + Supabase Google provider + Redirect URL `footprint://auth-callback` 설정 완료, 실기기 로그인 확인.
+- 현재 동의 화면은 **테스트 모드** — 등록된 테스트 사용자만 로그인 가능. **스토어 출시 전 "프로덕션 게시" 필요** (구글 검수 있을 수 있음).
+
+### [ ] 개인정보처리방침 URL (스토어 등록 필수) ★
+- **What:** 위치·사진·계정(이메일)을 수집하므로 Play 스토어 등록에 개인정보처리방침 공개 URL이 필수. 계정 삭제 안내도 포함해야 함.
+- **How:** 정적 페이지 한 장이면 됨 — 공유 웹(footprint.expo.app)에 `/privacy` 라우트로 넣거나 GitHub Pages. 수집 항목/용도/보관/삭제 방법 명시.
+
+### [ ] PKCE code challenge가 plain으로 동작 (보안 강화)
+- **What:** RN에 WebCrypto가 없어 Supabase PKCE가 S256 대신 plain 사용 중 (Metro 경고 확인됨). `expo-standard-web-crypto` 폴리필로 S256 활성화.
+- **Why:** plain도 TLS 위에선 동작하지만 S256이 표준 권장. 출시 전 정리.
+
+### [ ] 기타 출시 정리
+- iOS `bundleIdentifier` 미설정 (Android 먼저면 보류 가능)
+- LICENSE가 Expo 템플릿(650 Industries) 명의 그대로 — 본인 명의로 교체 또는 제거
+- expo 56.0.6 → 56.0.13 등 패키지 15개 업데이트 (`npx expo install --check`)
+- README 스크린샷 (앱 완성 후)
 
 ## 일반 (추가)
 

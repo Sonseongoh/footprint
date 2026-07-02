@@ -292,21 +292,24 @@ export default function AccountScreen() {
                 </Pressable>
               </View>
             ) : (
-              <Pressable
-                style={[styles.signOutBtn, busy && styles.btnDim]}
-                disabled={busy}
-                onPress={onSignOut}>
-                <Text style={styles.signOutText}>로그아웃</Text>
-              </Pressable>
-            )}
+              <>
+                <Pressable
+                  style={[styles.signOutBtn, busy && styles.btnDim]}
+                  disabled={busy}
+                  onPress={onSignOut}>
+                  <Text style={styles.signOutText}>로그아웃</Text>
+                </Pressable>
 
-            {/* danger zone — permanent account & data deletion (store compliance) */}
-            <Pressable
-              style={[styles.deleteBtn, busy && styles.btnDim]}
-              disabled={busy}
-              onPress={onDeleteAccount}>
-              <Text style={styles.deleteText}>계정 삭제</Text>
-            </Pressable>
+                {/* danger zone — permanent account & data deletion (store compliance).
+                    Signed-in only: a guest has no account to delete. */}
+                <Pressable
+                  style={[styles.deleteBtn, busy && styles.btnDim]}
+                  disabled={busy}
+                  onPress={onDeleteAccount}>
+                  <Text style={styles.deleteText}>계정 삭제</Text>
+                </Pressable>
+              </>
+            )}
           </ScrollView>
         )}
       </SafeAreaView>

@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Palette, Space } from '@/constants/footprint-theme';
 import { loadFillUnits } from '@/data';
 import { cityNameKo, regionNameKo } from '@/data/names-ko';
+import { getAuthState } from '@/lib/auth';
 import { flushQueue } from '@/lib/checkinService';
 import { getMyNotedPlaceKeys } from '@/lib/cityNotes';
 import { getRecords, type CheckinRecord } from '@/lib/records';
@@ -60,6 +61,7 @@ export default function RecordsScreen() {
   const [notedPlaces, setNotedPlaces] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<CountryCode | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [isGuest, setIsGuest] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   // countries the user actually has records in (drives the filter chips)
@@ -73,9 +75,14 @@ export default function RecordsScreen() {
     // drain any offline check-ins first (e.g. back online after traveling) so
     // the list below reads them as synced and the 대기 badge clears itself
     await flushQueue().catch(() => {});
-    const [rows, noted] = await Promise.all([getRecords(), getMyNotedPlaceKeys()]);
+    const [rows, noted, auth] = await Promise.all([
+      getRecords(),
+      getMyNotedPlaceKeys(),
+      getAuthState().catch(() => ({ email: null, isAnonymous: true })),
+    ]);
     setRecords(rows);
     setNotedPlaces(noted);
+    setIsGuest(auth.isAnonymous);
     setLoaded(true);
   }, []);
 
@@ -123,10 +130,22 @@ export default function RecordsScreen() {
           }
           ListEmptyComponent={
             loaded ? (
-              <View style={styles.empty}>
-                <Text style={styles.emptyTitle}>아직 기록이 없어요</Text>
-                <Text style={styles.emptyBody}>체크인하면 여기에 사진과 함께 쌓입니다.</Text>
-              </View>
+              isGuest ? (
+                <View style={styles.empty}>
+                  <Text style={styles.emptyTitle}>기록은 로그인하면 시작돼요</Text>
+                  <Text style={styles.emptyBody}>
+                    로그인하고 체크인하면 여기에 사진과 함께 쌓입니다.
+                  </Text>
+                  <Pressable style={styles.emptyLoginBtn} onPress={() => router.push('/account')}>
+                    <Text style={styles.emptyLoginText}>로그인하기</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={styles.empty}>
+                  <Text style={styles.emptyTitle}>아직 기록이 없어요</Text>
+                  <Text style={styles.emptyBody}>체크인하면 여기에 사진과 함께 쌓입니다.</Text>
+                </View>
+              )
             ) : null
           }
           renderItem={({ item }) => (
@@ -275,5 +294,13 @@ const styles = StyleSheet.create({
   note: { color: Palette.ink, fontSize: 14, marginTop: 2 },
   empty: { alignItems: 'center', marginTop: 80, gap: Space.sm },
   emptyTitle: { color: Palette.ink, fontSize: 17, fontWeight: '700' },
-  emptyBody: { color: Palette.muted, fontSize: 14 },
+  emptyBody: { color: Palette.muted, fontSize: 14, textAlign: 'center' },
+  emptyLoginBtn: {
+    marginTop: Space.sm,
+    backgroundColor: Palette.gold,
+    borderRadius: 12,
+    paddingVertical: Space.sm,
+    paddingHorizontal: Space.xl,
+  },
+  emptyLoginText: { color: Palette.bg, fontSize: 14, fontWeight: '700' },
 });

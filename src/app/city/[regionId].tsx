@@ -553,14 +553,29 @@ export default function CityScreen() {
               {/* can't write and have no note here — explain how to unlock */}
               {!canWrite && !myNote && (
                 <View style={styles.lockedCard}>
-                  <Text style={styles.lockedTitle}>
-                    {elig?.lastVisitAt ? '공유 기간이 끝났어요' : '아직 여행 공유를 남길 수 없어요'}
-                  </Text>
-                  <Text style={styles.lockedBody}>
-                    {elig?.lastVisitAt
-                      ? `체크인 후 ${WRITE_WINDOW_DAYS}일 동안만 공유할 수 있어요. 다시 방문해 체크인하면 또 남길 수 있어요.`
-                      : `이 도시에 체크인하면 ${WRITE_WINDOW_DAYS}일 동안 여행 공유를 남길 수 있어요.`}
-                  </Text>
+                  {isGuest ? (
+                    <>
+                      <Text style={styles.lockedTitle}>여행 공유는 로그인하고 남길 수 있어요</Text>
+                      <Text style={styles.lockedBody}>
+                        로그인하고 이 도시에 체크인하면 {WRITE_WINDOW_DAYS}일 동안 여행 공유를 남길 수
+                        있어요.
+                      </Text>
+                      <Pressable style={styles.lockedLoginBtn} onPress={() => router.push('/account')}>
+                        <Text style={styles.lockedLoginText}>로그인하기</Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.lockedTitle}>
+                        {elig?.lastVisitAt ? '공유 기간이 끝났어요' : '아직 여행 공유를 남길 수 없어요'}
+                      </Text>
+                      <Text style={styles.lockedBody}>
+                        {elig?.lastVisitAt
+                          ? `체크인 후 ${WRITE_WINDOW_DAYS}일 동안만 공유할 수 있어요. 다시 방문해 체크인하면 또 남길 수 있어요.`
+                          : `이 도시에 체크인하면 ${WRITE_WINDOW_DAYS}일 동안 여행 공유를 남길 수 있어요.`}
+                      </Text>
+                    </>
+                  )}
                 </View>
               )}
             </>
@@ -832,6 +847,15 @@ const styles = StyleSheet.create({
   },
   lockedTitle: { color: Palette.ink, fontSize: 15, fontWeight: '700' },
   lockedBody: { color: Palette.muted, fontSize: 13, lineHeight: 19 },
+  lockedLoginBtn: {
+    marginTop: Space.xs,
+    alignSelf: 'flex-start',
+    backgroundColor: Palette.gold,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: Space.lg,
+  },
+  lockedLoginText: { color: Palette.bg, fontSize: 13, fontWeight: '700' },
 
   notesList: { gap: Space.sm, marginTop: Space.md },
   noteRow: {

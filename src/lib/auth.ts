@@ -15,6 +15,7 @@
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 
+import { flushQueue } from '@/lib/checkinService';
 import { clearLocalVisits, hydrateLocalFromServer } from '@/lib/localVisits';
 import { ensureAnonymousSession, supabase } from '@/lib/supabase';
 
@@ -77,13 +78,23 @@ export async function signUpWithEmail(
   return { needsConfirm: !data.session };
 }
 
+/**
+ * After the signed-in user changes: sync any of *their* stranded offline
+ * check-ins first (flushQueue only sends rows owned by the current user), then
+ * rebuild the local fill map from their server visits so the globe/map/stats
+ * show this account — including what just synced.
+ */
+async function switchLocalStateToCurrentUser(): Promise<void> {
+  await clearLocalVisits();
+  await flushQueue().catch(() => {});
+  await hydrateLocalFromServer();
+}
+
 /** Sign into an existing account, replacing the current session. */
 export async function signInWithEmail(email: string, password: string): Promise<void> {
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw friendlyAuthError(error.message);
-  // new account → rebuild the local fill map from that account's server visits
-  await clearLocalVisits();
-  await hydrateLocalFromServer();
+  await switchLocalStateToCurrentUser();
 }
 
 /** Sign out and return to a fresh anonymous guest (app always has a session). */
@@ -108,9 +119,9 @@ export async function completeOAuthFromUrl(url: string): Promise<void> {
   const resetIfSwitched = async () => {
     const after = (await supabase.auth.getUser()).data.user?.id ?? null;
     if (before && after && before !== after) {
-      // switched into another account → rebuild its fill map from the server
-      await clearLocalVisits();
-      await hydrateLocalFromServer();
+      // switched into another account → sync its stranded check-ins + rebuild
+      // its fill map from the server
+      await switchLocalStateToCurrentUser();
     }
   };
 

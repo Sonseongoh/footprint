@@ -118,6 +118,11 @@ export async function flushQueue(): Promise<{ synced: number; failed: number }> 
   let synced = 0;
   let failed = 0;
   for (const row of rows) {
+    // A footprint belongs to whoever made it. A row queued under a different
+    // account (e.g. checked in offline as A, then switched to B) must NOT be
+    // attributed to the current user — leave it queued until its owner signs
+    // back in. ('local-only' rows predate the login gate; adopt them.)
+    if (row.userId !== userId && row.userId !== 'local-only') continue;
     try {
       await syncOne(row, userId);
       await markSynced(row.id);

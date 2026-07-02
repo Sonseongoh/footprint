@@ -28,6 +28,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
 import { loadFillUnits } from '@/data';
+import { getAuthState } from '@/lib/auth';
 import { regionNameKo } from '@/data/names-ko';
 import { pickFromLibrary, takePhoto } from '@/lib/photo';
 import {
@@ -156,6 +157,8 @@ export default function CityScreen() {
   const [elig, setElig] = useState<WriteEligibility | null>(null);
   const [myNote, setMyNote] = useState<CityNote | null>(null);
   const [nickname, setNickname] = useState<string | null>(null);
+  // guests are viewers: likes/reports route to login instead of writing
+  const [isGuest, setIsGuest] = useState(true);
   const [loaded, setLoaded] = useState(false);
 
   const [draft, setDraft] = useState('');
@@ -199,13 +202,15 @@ export default function CityScreen() {
   );
 
   const load = useCallback(async () => {
-    const [e, mine, prof, recs, count] = await Promise.all([
+    const [e, mine, prof, recs, count, auth] = await Promise.all([
       getWriteEligibility(country, regionId),
       getMyNote(country, regionId),
       getMyProfile(),
       getRecords(),
       getCityNoteCount(country, regionId),
+      getAuthState().catch(() => ({ email: null, isAnonymous: true })),
     ]);
+    setIsGuest(auth.isAnonymous);
     setMyCheckins(recs.filter((r) => r.country === country && r.regionId === regionId));
     setElig(e);
     setMyNote(mine);
@@ -227,7 +232,18 @@ export default function CityScreen() {
     fetchNotesPage(true);
   }
 
+  // guests can look but not touch — explain and route to login
+  function requireLogin(action: string): boolean {
+    if (!isGuest) return false;
+    Alert.alert('로그인이 필요해요', `${action}하려면 계정으로 로그인해 주세요.`, [
+      { text: '취소', style: 'cancel' },
+      { text: '로그인', onPress: () => router.push('/account') },
+    ]);
+    return true;
+  }
+
   function onToggleLike(note: CityNote) {
+    if (requireLogin('좋아요')) return;
     const liked = !note.likedByMe;
     const apply = (d: number, on: boolean) =>
       setOtherNotes((prev) =>
@@ -240,6 +256,7 @@ export default function CityScreen() {
   }
 
   function onReport(note: CityNote) {
+    if (requireLogin('신고')) return;
     Alert.alert('신고', '이 여행 공유를 부적절한 내용으로 신고할까요?', [
       { text: '취소', style: 'cancel' },
       {

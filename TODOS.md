@@ -29,6 +29,12 @@
 - **Google Cloud Console** → OAuth 동의 화면 + OAuth 클라이언트(Web) 생성, 승인된 리디렉션 URI에 Supabase 콜백(`https://ayuvcvwrkjjlqsfnqaxm.supabase.co/auth/v1/callback`) 추가.
 - 설정 전까지 앱의 "Google로 계속하기"는 provider 미설정 에러를 띄움(친절 메시지 처리됨).
 
+## 일반 (추가)
+
+### [ ] 익명 계정 누적 정리
+- **What:** 앱 실행/로그아웃마다 생성되는 익명 auth 유저가 서버에 쌓임. 게스트=구경꾼 전환(0014) 이후 익명 세션의 실질 용도가 없어짐 — 장기적으로 익명 세션 생성 자체를 제거하거나, 오래된 익명 유저를 주기 삭제.
+- **Why:** auth.users 오염. 당장 해롭진 않음(쓰기 차단됨) — 출시 전 필수는 아님.
+
 ## 우선 (Priority)
 
 ### [ ] EXIF 사후 복구

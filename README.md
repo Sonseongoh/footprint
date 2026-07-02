@@ -1,56 +1,81 @@
-# Welcome to your Expo app 👋
+# footprint
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+**여행을 수집하다.**
 
-## Get started
+직접 가서 GPS로 인증한 도시만 지도에 금색으로 채워지는 여행 수집 앱.
+한 나라를 얼마나 깊게 여행했는지 — 도시 단위로 모은다. (v1: 한국 · 일본 · 태국)
 
-1. Install dependencies
+## 컨셉
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+체크인 → 지도가 채워짐 → 빈 도시가 보임 → 더 채우고 싶음 → 다음 여행
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+- **가본 곳만 기록된다.** 수동 추가 없음. 현장 GPS 인증(행정구역 polygon 판정)만 발자국이 된다.
+- **수집의 단위는 도시.** 한국은 시 단위, 일본은 현, 태국은 주 단위로 지도가 채워진다.
+- **재방문은 누적된다.** 같은 도시를 다시 가면 방문 횟수가 쌓인다.
 
-### Other setup steps
+## 주요 기능
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+| 기능 | 설명 |
+|---|---|
+| 🌍 지구본 | 게임풍 3D 지구본에서 나라를 골라 내 지도를 펼친다 |
+| 📍 체크인 | 현장 GPS 인증 + 메모(나만 보기) + 사진(최대 5장) |
+| 🗺️ 채움 지도 | 방문한 행정구역이 금색으로 채워지는 나라별 choropleth |
+| 🧾 기록 | 체크인 타임라인, 나라별 필터, 사진 썸네일 |
+| 🌏 여행 공유 | 체크인한 사람만(7일 이내) 그 도시에 남길 수 있는 공개 추천 — 좋아요·정렬·무한스크롤·신고 |
+| 👣 내 발자국 | 수집 통계(나라/채운 도시/공유), 나라별 진행도, 내 공유 모음 |
+| 🔗 공유 링크 | 나라별 채움 지도를 웹 링크로 공유 (위치·메모·사진은 비공개) |
+| 👤 계정 | 이메일/구글 로그인, 닉네임, 계정 삭제(데이터 영구 삭제) |
 
-## Learn more
+## 기술 스택
 
-To learn more about developing your project with Expo, look at the following resources:
+- **앱**: Expo SDK 56 · React Native 0.85 (New Architecture) · expo-router · Reanimated 4 · react-native-svg + d3-geo
+- **백엔드**: Supabase — Auth(이메일/Google OAuth PKCE) · Postgres + RLS · Storage(개인 사진은 private, 공유 사진은 public 버킷)
+- **로컬 우선**: expo-sqlite — 체크인은 로컬 큐에 먼저 저장되고(오프라인 안전) 온라인일 때 서버로 동기화. 지도/지구본/통계는 로컬 투영에서 즉시 렌더링
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```
+체크인 ─▶ SQLite 큐 + 로컬 투영(지도 즉시 반영)
+              │ flushQueue (온라인 시)
+              ▼
+     visit_events (개인, RLS)
+              ▼ DB 트리거
+     visits 집계 ─▶ 공유 페이지(채움+횟수만 공개)
+```
 
-## Join the community
+## 시작하기
 
-Join our community of developers creating universal apps.
+```bash
+npm install
+cp .env.example .env   # Supabase URL/키 입력
+npx expo start
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- **dev build 필요** — 네이티브 모듈(expo-dev-client, secure-store, sqlite 등)을 쓰므로 Expo Go로는 동작하지 않는다. `npx expo run:android` 또는 EAS build로 개발 클라이언트를 설치한 뒤 Metro에 연결한다.
+- **DB 마이그레이션** — `supabase/migrations/`의 SQL을 순서대로 Supabase 대시보드 SQL Editor에서 실행한다.
+- **구글 로그인** — Supabase Auth에 Google provider 설정 + Redirect URL `footprint://auth-callback` 등록이 필요하다. (자세한 값은 `TODOS.md`의 출시 설정 참고)
+
+## 테스트
+
+```bash
+npm test        # jest — 지역 데이터 무결성 + 지오 판정
+npx tsc --noEmit
+```
+
+## 프로젝트 구조
+
+```
+src/
+├── app/            # expo-router 화면 (탭: 지구본·체크인·기록·지도·나)
+├── features/       # 지구본(CountryGlobe) · 채움 지도(CountryFillMap)
+├── lib/            # 체크인·동기화 큐·로컬 투영·인증·여행 공유·통계
+├── data/           # 번들된 행정구역 GeoJSON + 도시 포인트 + 한글 명칭
+└── types/          # 도메인 타입
+supabase/
+└── migrations/     # DB 스키마 (수동 적용)
+```
+
+## 설계 문서
+
+- [DESIGN.md](DESIGN.md) — 제품 정의, 신뢰 모델, v1 아키텍처 결정
+- [TODOS.md](TODOS.md) — 보류 항목과 출시 전 필수 작업

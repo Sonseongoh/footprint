@@ -310,6 +310,10 @@ export default function AccountScreen() {
                 </Pressable>
               </>
             )}
+
+            <Pressable onPress={() => router.push('/privacy')} hitSlop={8} style={styles.privacyLink}>
+              <Text style={styles.privacyLinkText}>개인정보처리방침</Text>
+            </Pressable>
           </ScrollView>
         )}
       </SafeAreaView>
@@ -378,6 +382,8 @@ const styles = StyleSheet.create({
   googleText: { color: Palette.ink, fontSize: 14, fontWeight: '700' },
   deleteBtn: { alignItems: 'center', paddingVertical: Space.md, marginTop: Space.sm },
   deleteText: { color: '#E5705B', fontSize: 14, fontWeight: '700' },
+  privacyLink: { alignItems: 'center', paddingVertical: Space.sm },
+  privacyLinkText: { color: Palette.muted, fontSize: 13, textDecorationLine: 'underline' },
   signOutBtn: {
     borderWidth: 1,
     borderColor: Palette.surfaceLine,

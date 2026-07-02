@@ -39,6 +39,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="account" />
           <Stack.Screen name="auth-callback" />
+          <Stack.Screen name="privacy" />
           <Stack.Screen name="city/[regionId]" />
           <Stack.Screen name="u/[slug]" />
           <Stack.Screen name="share/[slug]" />

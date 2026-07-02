@@ -112,8 +112,10 @@ export async function flushQueue(): Promise<{ synced: number; failed: number }> 
 
   // can't sync without a session (offline / backend not configured yet)
   const { data } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
-  const userId = data.session?.user?.id;
+  const user = data.session?.user;
+  const userId = user?.id;
   if (!userId) return { synced: 0, failed: rows.length };
+  const isRealUser = !(user?.is_anonymous ?? false);
 
   let synced = 0;
   let failed = 0;
@@ -121,8 +123,11 @@ export async function flushQueue(): Promise<{ synced: number; failed: number }> 
     // A footprint belongs to whoever made it. A row queued under a different
     // account (e.g. checked in offline as A, then switched to B) must NOT be
     // attributed to the current user — leave it queued until its owner signs
-    // back in. ('local-only' rows predate the login gate; adopt them.)
-    if (row.userId !== userId && row.userId !== 'local-only') continue;
+    // back in. ('local-only' rows predate the login gate; adopt them, but only
+    // into a real account — the server rejects anonymous inserts anyway, and
+    // retrying them under a guest session would just fail forever.)
+    const adoptable = row.userId === 'local-only' && isRealUser;
+    if (row.userId !== userId && !adoptable) continue;
     try {
       await syncOne(row, userId);
       await markSynced(row.id);

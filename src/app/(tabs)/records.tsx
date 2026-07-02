@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Palette, Space } from '@/constants/footprint-theme';
 import { loadFillUnits } from '@/data';
 import { cityNameKo, regionNameKo } from '@/data/names-ko';
+import { flushQueue } from '@/lib/checkinService';
 import { getMyNotedPlaceKeys } from '@/lib/cityNotes';
 import { getRecords, type CheckinRecord } from '@/lib/records';
 import { COUNTRIES, type CountryCode } from '@/types/domain';
@@ -69,6 +70,9 @@ export default function RecordsScreen() {
   const shown = filter ? records.filter((r) => r.country === filter) : records;
 
   const load = useCallback(async () => {
+    // drain any offline check-ins first (e.g. back online after traveling) so
+    // the list below reads them as synced and the 대기 badge clears itself
+    await flushQueue().catch(() => {});
     const [rows, noted] = await Promise.all([getRecords(), getMyNotedPlaceKeys()]);
     setRecords(rows);
     setNotedPlaces(noted);

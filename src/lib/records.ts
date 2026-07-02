@@ -27,8 +27,14 @@ const SIGNED_URL_TTL_S = 60 * 60;
 export async function getRecords(): Promise<CheckinRecord[]> {
   const out: CheckinRecord[] = [];
 
-  // still-unsynced local check-ins (photo is a local file uri)
-  const queued = await pending();
+  // still-unsynced local check-ins (photo is a local file uri). The queue can
+  // hold rows stranded by a signed-out owner (flushQueue skips them) — show
+  // only the current user's rows, mirroring the flush ownership rule.
+  const { data: session } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+  const myId = session.session?.user?.id ?? null;
+  const queued = (await pending()).filter(
+    (q) => q.userId === myId || q.userId === 'local-only',
+  );
   for (const q of queued) {
     out.push({
       id: q.id,

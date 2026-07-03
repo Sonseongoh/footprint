@@ -116,9 +116,10 @@ export default function MeScreen() {
                   <Ionicons name="person-circle-outline" size={26} color={Palette.gold} />
                 </View>
                 <View style={styles.loginBody}>
-                  <Text style={styles.loginTitle}>로그인하고 기록 지키기</Text>
+                  <Text style={styles.loginTitle}>로그인하고 발자국 남기기</Text>
                   <Text style={styles.loginSub}>
-                    게스트는 앱을 지우면 발자국이 사라져요. 계정을 만들면 안전하게 보관돼요.
+                    체크인과 여행 공유는 로그인 후에 할 수 있어요. 발자국은 계정에 안전하게
+                    보관됩니다.
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={Palette.muted} />

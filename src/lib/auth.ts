@@ -1,16 +1,16 @@
 /**
- * Email/password auth on top of the deferred-anonymous flow.
+ * Auth flows. Guests are VIEWERS (2026-07-02 model, see CONTEXT.md): the app
+ * still starts with an anonymous session so the backend is reachable, but all
+ * writes (check-ins, likes, reports, 여행 공유) require a real account — the
+ * server enforces this via RLS (0014_guest_readonly.sql).
  *
- *  - The app always starts anonymous (ensureAnonymousSession) so a user can
- *    check in with zero friction.
- *  - Signing UP while anonymous *links* the email to that same user
- *    (updateUser) — their existing map/notes carry over, no data loss.
- *  - Signing IN switches to an existing account; signing OUT drops back to a
- *    fresh anonymous guest so the app always has a working session.
+ *  - Signing UP while anonymous upgrades that user in place (updateUser).
+ *  - Signing IN / Google switches accounts; signing OUT drops back to a fresh
+ *    anonymous guest so the app always has a working session.
  *
- * Switching the signed-in user changes who owns server data (notes,
- * write-eligibility, visits). The on-device fill projection is per-device, so we
- * wipe it on every switch (clearLocalVisits) to keep accounts visually separate.
+ * Switching the signed-in user changes who owns server data, so on every switch
+ * the on-device fill projection is rebuilt for the new user
+ * (switchLocalStateToCurrentUser: clear → flush own queued check-ins → hydrate).
  */
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
@@ -26,8 +26,13 @@ export interface AuthState {
 }
 
 export async function getAuthState(): Promise<AuthState> {
-  const { data } = await supabase.auth.getUser();
-  const user = data.user;
+  // Read the locally persisted session. getUser() hits the network, so offline
+  // (airplane mode, no roaming — normal while traveling) it would misclassify a
+  // signed-in user as a guest and lock them out of check-in. The session is the
+  // device's own encrypted copy; server writes still verify the token, so
+  // trusting it for UI gating adds no security exposure.
+  const { data } = await supabase.auth.getSession();
+  const user = data.session?.user ?? null;
   return {
     email: user?.email ?? null,
     // supabase marks deferred sign-ins; treat "no email" as guest too

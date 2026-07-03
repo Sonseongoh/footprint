@@ -20,9 +20,9 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.ACCESS_FINE_LOCATION"
       ],
+      "blockedPermissions": ["android.permission.RECORD_AUDIO"],
       "package": "com.nobleser.footprint"
     },
     "web": {
@@ -55,7 +55,8 @@
         "expo-image-picker",
         {
           "photosPermission": "체크인에 남길 사진을 고르기 위해 사진 접근이 필요합니다.",
-          "cameraPermission": "체크인에 남길 사진을 찍기 위해 카메라가 필요합니다."
+          "cameraPermission": "체크인에 남길 사진을 찍기 위해 카메라가 필요합니다.",
+          "microphonePermission": false
         }
       ]
     ],

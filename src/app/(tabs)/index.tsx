@@ -9,9 +9,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as Location from 'expo-location';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -23,7 +24,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
-import { loadFillUnits, resolveCheckin, type ResolvedCheckin } from '@/data';
+import { availableCountries, loadFillUnits, resolveCheckin, type ResolvedCheckin } from '@/data';
 import { cityDisplayKo, regionNameKo } from '@/data/names-ko';
 import { getAuthState } from '@/lib/auth';
 import { recordCheckin } from '@/lib/checkinService';
@@ -44,6 +45,12 @@ const TEST_POINTS: { label: string; pos: Position }[] = [
   { label: '치앙마이', pos: [98.9853, 18.7883] },
 ];
 
+// "한국 · 일본 · 태국" — derived from the bundled data so copy can't drift from
+// what the app actually supports (the old hardcoded string forgot Thailand).
+const SUPPORTED_LABEL = availableCountries()
+  .map((c) => COUNTRIES[c].nameLocal)
+  .join(' · ');
+
 export default function CheckinScreen() {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>('idle');
@@ -52,6 +59,7 @@ export default function CheckinScreen() {
   const [note, setNote] = useState('');
   const [photoUris, setPhotoUris] = useState<string[]>([]);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [backendReady, setBackendReady] = useState<boolean | null>(null);
   // Guests (anonymous session) can't check in — we route them to login so their
@@ -101,24 +109,46 @@ export default function CheckinScreen() {
     setPhase('result');
   }
 
+  // Each locate attempt gets an id so 취소 (or a retry) can invalidate a GPS
+  // response that arrives late — without this a canceled fix would still flip
+  // the screen to a result.
+  const locateAttemptRef = useRef(0);
+  const GPS_TIMEOUT_MS = 20_000;
+
   async function handleCheckin() {
     if (isGuest) {
       router.push('/account'); // login required before any check-in
       return;
     }
+    const attempt = ++locateAttemptRef.current;
     setPhase('locating');
     const { status } = await Location.requestForegroundPermissionsAsync();
+    if (attempt !== locateAttemptRef.current) return; // canceled while asking
     if (status !== 'granted') {
       setPhase('denied');
       return;
     }
     try {
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      // indoors/underground a GPS fix can hang forever — cap it and fall
+      // through to the no-fix guidance instead of an endless spinner
+      const loc = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('gps-timeout')), GPS_TIMEOUT_MS),
+        ),
+      ]);
+      if (attempt !== locateAttemptRef.current) return;
       runResolve([loc.coords.longitude, loc.coords.latitude], loc.coords.accuracy ?? null);
     } catch {
+      if (attempt !== locateAttemptRef.current) return;
       setResult({ ok: false, reason: 'no-fix', regionId: null, city: null, country: null });
       setPhase('result');
     }
+  }
+
+  function cancelLocating() {
+    locateAttemptRef.current += 1; // orphan the in-flight attempt
+    setPhase('idle');
   }
 
   async function handleRecord() {
@@ -127,21 +157,29 @@ export default function CheckinScreen() {
       return;
     }
     if (!result?.ok || !result.country || !coords) return;
-    await recordCheckin({
-      userId: userId ?? 'local-only',
-      regionId: result.regionId!,
-      cityId: result.city?.id ?? null,
-      cityName: result.city?.name ?? null,
-      country: result.country,
-      lat: coords.pos[1],
-      lng: coords.pos[0],
-      accuracyM: coords.accuracyM,
-      note: note.trim() || null,
-      photoUris,
-    });
-    setPhase('done');
-    setNote('');
-    setPhotoUris([]);
+    if (saving) return; // double-tap would mint a second event id → double count
+    setSaving(true);
+    try {
+      await recordCheckin({
+        userId: userId ?? 'local-only',
+        regionId: result.regionId!,
+        cityId: result.city?.id ?? null,
+        cityName: result.city?.name ?? null,
+        country: result.country,
+        lat: coords.pos[1],
+        lng: coords.pos[0],
+        accuracyM: coords.accuracyM,
+        note: note.trim() || null,
+        photoUris,
+      });
+      setPhase('done');
+      setNote('');
+      setPhotoUris([]);
+    } catch {
+      Alert.alert('저장 실패', '기록을 저장하지 못했어요. 다시 시도해주세요.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function reset() {
@@ -182,13 +220,14 @@ export default function CheckinScreen() {
               <View style={styles.brandDot} />
               <Text style={styles.brand}>footprint</Text>
             </View>
-            <Text style={styles.subtitle}>현장 체크인 · 한국 · 일본 · 태국 (v1)</Text>
+            <Text style={styles.subtitle}>현장 체크인 · {SUPPORTED_LABEL}</Text>
           </View>
 
           {backendReady === false && (
             <View style={styles.banner}>
               <Text style={styles.bannerText}>
-                백엔드 미설정 — 검증·로컬 기록만 됩니다. supabase/README의 .env 설정 후 동기화됩니다.
+                지금은 연결이 원활하지 않아요. 기록은 이 기기에 안전하게 저장되고, 연결되면 자동으로
+                동기화됩니다.
               </Text>
             </View>
           )}
@@ -285,7 +324,7 @@ export default function CheckinScreen() {
                   </Text>
                   <Text style={styles.cardBody}>
                     {result.reason === 'no-region' &&
-                      'v1은 한국·일본을 지원합니다. 해당 국가 안에서 다시 시도해보세요.'}
+                      `지금은 ${SUPPORTED_LABEL}을 지원해요. 해당 국가 안에서 다시 시도해보세요.`}
                     {result.reason === 'low-accuracy' && '잠시 후 야외에서 다시 시도해보세요.'}
                     {result.reason === 'no-fix' && '위치 신호를 확인하고 다시 시도해보세요.'}
                   </Text>
@@ -317,19 +356,24 @@ export default function CheckinScreen() {
         </ScrollView>
 
         <View style={styles.actions}>
-          {(phase === 'idle' || phase === 'locating') && (
-            <Pressable
-              style={styles.primary}
-              disabled={phase === 'locating'}
-              onPress={handleCheckin}>
+          {phase === 'idle' && (
+            <Pressable style={styles.primary} onPress={handleCheckin}>
               <Text style={styles.primaryText}>
                 {isGuest ? '로그인하고 체크인하기' : '＋ 지금 여기 체크인'}
               </Text>
             </Pressable>
           )}
+          {phase === 'locating' && (
+            <Pressable style={styles.cancelBtn} onPress={cancelLocating}>
+              <Text style={styles.cancelBtnText}>취소</Text>
+            </Pressable>
+          )}
           {phase === 'result' && result?.ok && (
-            <Pressable style={styles.primary} onPress={handleRecord}>
-              <Text style={styles.primaryText}>이 도시 기록하기</Text>
+            <Pressable
+              style={[styles.primary, saving && { opacity: 0.6 }]}
+              disabled={saving}
+              onPress={handleRecord}>
+              <Text style={styles.primaryText}>{saving ? '저장 중…' : '이 도시 기록하기'}</Text>
             </Pressable>
           )}
           {(phase === 'result' || phase === 'denied' || phase === 'done') && (
@@ -499,6 +543,14 @@ const styles = StyleSheet.create({
   primaryText: { color: Palette.bg, fontSize: 16, fontWeight: '700' },
   secondary: { paddingVertical: Space.sm, alignItems: 'center' },
   secondaryText: { color: Palette.muted, fontSize: 15 },
+  cancelBtn: {
+    borderWidth: 1,
+    borderColor: Palette.surfaceLine,
+    borderRadius: 16,
+    paddingVertical: Space.md,
+    alignItems: 'center',
+  },
+  cancelBtnText: { color: Palette.muted, fontSize: 16, fontWeight: '700' },
   devRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: Space.lg },
   devBtn: { paddingVertical: Space.sm, alignItems: 'center' },
   devText: { color: Palette.surfaceLine, fontSize: 13 },

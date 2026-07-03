@@ -88,10 +88,10 @@ export default function AccountScreen() {
       if (needsConfirm) {
         Alert.alert(
           '확인 메일을 보냈어요',
-          '메일의 링크를 눌러 가입을 완료해주세요. (테스트 중이라면 Supabase Auth 설정에서 "Confirm email"을 끄면 즉시 가입됩니다.)',
+          '메일의 링크를 눌러 가입을 완료해주세요. 메일이 안 보이면 스팸함도 확인해주세요.',
         );
       } else {
-        Alert.alert('가입 완료', '계정이 만들어졌어요. 기존 기록도 그대로 이어집니다.');
+        Alert.alert('가입 완료', '계정이 만들어졌어요. 이제 체크인하며 발자국을 모을 수 있어요.');
       }
       setPassword('');
       await load();
@@ -216,7 +216,8 @@ export default function AccountScreen() {
               </Text>
               {auth.isAnonymous && (
                 <Text style={styles.hint}>
-                  게스트는 앱을 지우면 기록이 사라져요. 계정을 만들면 안전하게 보관돼요.
+                  게스트는 둘러보기만 할 수 있어요. 계정을 만들면 체크인하고 발자국을 모을 수
+                  있어요.
                 </Text>
               )}
             </View>

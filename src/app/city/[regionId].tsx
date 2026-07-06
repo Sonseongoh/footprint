@@ -24,6 +24,7 @@ import {
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
@@ -62,8 +63,24 @@ function daysLeft(expiresAt: string): number {
   return Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 86_400_000));
 }
 
-/** Full-screen photo viewer with pinch-to-zoom + pan; double-tap or ✕ to reset/close. */
-function PhotoViewer({ url, onClose }: { url: string | null; onClose: () => void }) {
+/** What the full-screen viewer is showing: a photo set + which one is open. */
+interface ViewerState {
+  urls: string[];
+  index: number;
+}
+
+/**
+ * Full-screen photo viewer. Pinch-to-zoom + pan; double-tap resets; ✕ closes.
+ * With multiple photos: swipe left/right (while not zoomed) or tap the edge
+ * chevrons to move between them — an "n / m" counter shows the position.
+ */
+function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose: () => void }) {
+  const [index, setIndex] = useState(0);
+  // arrows/counter overlay — single-tap toggles it so photos can be viewed clean
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const urls = photos?.urls ?? [];
+  const url = urls[index] ?? null;
+
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
   const tx = useSharedValue(0);
@@ -71,15 +88,33 @@ function PhotoViewer({ url, onClose }: { url: string | null; onClose: () => void
   const savedTx = useSharedValue(0);
   const savedTy = useSharedValue(0);
 
-  // reset transform each time a new photo opens
-  useEffect(() => {
+  const resetTransform = useCallback(() => {
     scale.value = 1;
     savedScale.value = 1;
     tx.value = 0;
     ty.value = 0;
     savedTx.value = 0;
     savedTy.value = 0;
-  }, [url, scale, savedScale, tx, ty, savedTx, savedTy]);
+  }, [scale, savedScale, tx, ty, savedTx, savedTy]);
+
+  // opening a new set → jump to its start photo, overlay back on
+  useEffect(() => {
+    if (photos) {
+      setIndex(photos.index);
+      setChromeVisible(true);
+    }
+  }, [photos]);
+  useEffect(() => {
+    resetTransform();
+  }, [photos, index, resetTransform]);
+
+  const step = useCallback(
+    (dir: number) => {
+      setIndex((i) => Math.min(Math.max(i + dir, 0), Math.max(urls.length - 1, 0)));
+    },
+    [urls.length],
+  );
+  const toggleChrome = useCallback(() => setChromeVisible((v) => !v), []);
 
   const pinch = Gesture.Pinch()
     .onUpdate((e) => {
@@ -93,7 +128,16 @@ function PhotoViewer({ url, onClose }: { url: string | null; onClose: () => void
       tx.value = savedTx.value + e.translationX;
       ty.value = savedTy.value + e.translationY;
     })
-    .onEnd(() => {
+    .onEnd((e) => {
+      // not zoomed → a horizontal drag is a photo swipe, not a pan
+      if (scale.value <= 1.01 && Math.abs(e.translationX) > 60) {
+        scheduleOnRN(step, e.translationX < 0 ? 1 : -1);
+        tx.value = 0;
+        ty.value = 0;
+        savedTx.value = 0;
+        savedTy.value = 0;
+        return;
+      }
       savedTx.value = tx.value;
       savedTy.value = ty.value;
     });
@@ -107,14 +151,25 @@ function PhotoViewer({ url, onClose }: { url: string | null; onClose: () => void
       savedTx.value = 0;
       savedTy.value = 0;
     });
-  const gesture = Gesture.Simultaneous(Gesture.Exclusive(doubleTap, pan), pinch);
+  // single tap toggles the overlay. Priority: doubleTap > pan > singleTap —
+  // pan must outrank the tap or a quick swipe registers as a tap (toggling the
+  // overlay instead of changing photos); the tap only wins when the finger
+  // doesn't move.
+  const singleTap = Gesture.Tap()
+    .numberOfTaps(1)
+    .maxDistance(10)
+    .onEnd((_e, success) => {
+      if (success) scheduleOnRN(toggleChrome);
+    });
+  const gesture = Gesture.Simultaneous(Gesture.Exclusive(doubleTap, pan, singleTap), pinch);
 
   const imgStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }],
   }));
 
+  const multi = urls.length > 1;
   return (
-    <Modal visible={!!url} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={!!photos} transparent animationType="fade" onRequestClose={onClose}>
       <GestureHandlerRootView style={styles.viewerRoot}>
         <GestureDetector gesture={gesture}>
           <Animated.View style={styles.viewerBody}>
@@ -125,6 +180,25 @@ function PhotoViewer({ url, onClose }: { url: string | null; onClose: () => void
             )}
           </Animated.View>
         </GestureDetector>
+
+        {multi && chromeVisible && index > 0 && (
+          <Pressable style={[styles.viewerNav, styles.viewerNavLeft]} hitSlop={8} onPress={() => step(-1)}>
+            <Ionicons name="chevron-back" size={30} color="rgba(255,255,255,0.85)" />
+          </Pressable>
+        )}
+        {multi && chromeVisible && index < urls.length - 1 && (
+          <Pressable style={[styles.viewerNav, styles.viewerNavRight]} hitSlop={8} onPress={() => step(1)}>
+            <Ionicons name="chevron-forward" size={30} color="rgba(255,255,255,0.85)" />
+          </Pressable>
+        )}
+        {multi && chromeVisible && (
+          <View style={styles.viewerCounter} pointerEvents="none">
+            <Text style={styles.viewerCounterText}>
+              {index + 1} / {urls.length}
+            </Text>
+          </View>
+        )}
+
         <Pressable style={styles.viewerClose} onPress={onClose} hitSlop={12}>
           <Ionicons name="close" size={28} color="#fff" />
         </Pressable>
@@ -167,8 +241,8 @@ export default function CityScreen() {
   const [saving, setSaving] = useState(false);
   // false = show my note as a read card with a 수정 button; true = compose/edit
   const [editing, setEditing] = useState(false);
-  // url of the photo open in the full-screen viewer (null = closed)
-  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  // photo set open in the full-screen viewer (null = closed)
+  const [viewer, setViewer] = useState<ViewerState | null>(null);
   // photo compose state: ordered list of attachments. `existingPath` is set for
   // photos already on the note (edit mode), null for freshly picked local ones.
   const [photos, setPhotos] = useState<{ uri: string; existingPath: string | null }[]>([]);
@@ -440,7 +514,7 @@ export default function CityScreen() {
                   {myCheckins.map((c) => (
                     <View key={c.id} style={styles.checkinRow}>
                       {c.photoUrls.length > 0 ? (
-                        <Pressable onPress={() => setViewerUrl(c.photoUrls[0])}>
+                        <Pressable onPress={() => setViewer({ urls: c.photoUrls, index: 0 })}>
                           <Image source={{ uri: c.photoUrls[0] }} style={styles.checkinThumb} contentFit="cover" />
                           {c.photoUrls.length > 1 && (
                             <View style={styles.checkinThumbCount}>
@@ -484,7 +558,10 @@ export default function CityScreen() {
                     </Pressable>
                   </View>
                   <Text style={styles.noteBody}>{myNote.body}</Text>
-                  <NotePhotos urls={myNote.photoUrls} onPress={setViewerUrl} />
+                  <NotePhotos
+                    urls={myNote.photoUrls}
+                    onPress={(i) => setViewer({ urls: myNote.photoUrls, index: i })}
+                  />
                   {myNote.likeCount > 0 && (
                     <View style={styles.likeBtn}>
                       <Ionicons name="heart" size={16} color={Palette.gold} />
@@ -629,7 +706,7 @@ export default function CityScreen() {
               <NoteRow
                 key={n.id}
                 note={n}
-                onPhotoPress={setViewerUrl}
+                onPhotoPress={(urls, index) => setViewer({ urls, index })}
                 onToggleLike={onToggleLike}
                 onReport={onReport}
               />
@@ -641,18 +718,18 @@ export default function CityScreen() {
           </View>
         </ScrollView>
       </SafeAreaView>
-      <PhotoViewer url={viewerUrl} onClose={() => setViewerUrl(null)} />
+      <PhotoViewer photos={viewer} onClose={() => setViewer(null)} />
     </View>
   );
 }
 
 /** Renders a note's photos: one big image, or a scrollable strip with a count
- *  badge so it's obvious when there are more than fit on screen. */
-function NotePhotos({ urls, onPress }: { urls: string[]; onPress: (url: string) => void }) {
+ *  badge. Tapping reports the INDEX so the viewer can open the whole set there. */
+function NotePhotos({ urls, onPress }: { urls: string[]; onPress: (index: number) => void }) {
   if (urls.length === 0) return null;
   if (urls.length === 1) {
     return (
-      <Pressable onPress={() => onPress(urls[0])}>
+      <Pressable onPress={() => onPress(0)}>
         <Image source={{ uri: urls[0] }} style={styles.notePhoto} contentFit="cover" />
       </Pressable>
     );
@@ -661,7 +738,7 @@ function NotePhotos({ urls, onPress }: { urls: string[]; onPress: (url: string) 
     <View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.notePhotoStrip}>
         {urls.map((url, i) => (
-          <Pressable key={`${url}-${i}`} onPress={() => onPress(url)}>
+          <Pressable key={`${url}-${i}`} onPress={() => onPress(i)}>
             <Image source={{ uri: url }} style={styles.notePhotoThumb} contentFit="cover" />
           </Pressable>
         ))}
@@ -683,7 +760,7 @@ function NoteRow({
 }: {
   note: CityNote;
   mineLabel?: boolean;
-  onPhotoPress?: (url: string) => void;
+  onPhotoPress?: (urls: string[], index: number) => void;
   onToggleLike?: (note: CityNote) => void;
   onReport?: (note: CityNote) => void;
 }) {
@@ -694,7 +771,7 @@ function NoteRow({
         <Text style={styles.noteDate}>{relativeDate(note.createdAt)}</Text>
       </View>
       <Text style={styles.noteBody}>{note.body}</Text>
-      <NotePhotos urls={note.photoUrls} onPress={(u) => onPhotoPress?.(u)} />
+      <NotePhotos urls={note.photoUrls} onPress={(i) => onPhotoPress?.(note.photoUrls, i)} />
       <View style={styles.noteFooter}>
         {/* report/block menu — only on other people's shares */}
         {onReport && !note.mine ? (
@@ -939,4 +1016,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  viewerNav: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -22,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerNavLeft: { left: 12 },
+  viewerNavRight: { right: 12 },
+  viewerCounter: {
+    position: 'absolute',
+    bottom: 42,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  viewerCounterText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 });

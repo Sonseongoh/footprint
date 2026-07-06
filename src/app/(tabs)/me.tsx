@@ -53,13 +53,14 @@ export default function MeScreen() {
   const scrollToY = (y: number) => scrollRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true });
 
   const load = useCallback(async () => {
-    const [prof, auth, s, notes, recs] = await Promise.all([
+    const [prof, auth, s, notes, recsResult] = await Promise.all([
       getMyProfile(),
       getAuthState(),
       getCollectionStats(),
       getMyNotes(),
       getRecords(),
     ]);
+    const recs = recsResult.records;
     setNickname(prof?.nickname ?? null);
     setIsGuest(auth.isAnonymous);
     setStats(s);

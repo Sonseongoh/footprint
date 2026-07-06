@@ -62,6 +62,7 @@ export default function RecordsScreen() {
   const [filter, setFilter] = useState<CountryCode | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [isGuest, setIsGuest] = useState(false);
+  const [offline, setOffline] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   // countries the user actually has records in (drives the filter chips)
@@ -83,12 +84,13 @@ export default function RecordsScreen() {
     // drain any offline check-ins first (e.g. back online after traveling) so
     // the list below reads them as synced and the 대기 badge clears itself
     await flushQueue().catch(() => {});
-    const [rows, noted, auth] = await Promise.all([
+    const [result, noted, auth] = await Promise.all([
       getRecords(),
       getMyNotedPlaceKeys(),
       getAuthState().catch(() => ({ email: null, isAnonymous: true })),
     ]);
-    setRecords(rows);
+    setRecords(result.records);
+    setOffline(result.offline);
     setNotedPlaces(noted);
     setIsGuest(auth.isAnonymous);
     setLoaded(true);
@@ -114,6 +116,15 @@ export default function RecordsScreen() {
     <View style={styles.root}>
       <SafeAreaView style={styles.safe}>
         <Text style={styles.title}>기록</Text>
+
+        {loaded && offline && (
+          <View style={styles.offlineBanner}>
+            <Ionicons name="cloud-offline-outline" size={14} color={Palette.muted} />
+            <Text style={styles.offlineText}>
+              오프라인 — 마지막으로 동기화된 기록이에요. 연결되면 자동으로 최신화됩니다.
+            </Text>
+          </View>
+        )}
 
         {presentCountries.length > 1 && (
           <View style={styles.filterRow}>
@@ -238,7 +249,7 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: Palette.gold },
   chipText: { color: Palette.muted, fontSize: 14, fontWeight: '600' },
   chipTextActive: { color: Palette.bg, fontWeight: '700' },
-  list: { gap: Space.sm, paddingBottom: Space.xl },
+  list: { gap: Space.md, paddingBottom: Space.xl },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -300,6 +311,19 @@ const styles = StyleSheet.create({
   privateBadgeText: { color: Palette.muted, fontSize: 11, fontWeight: '700' },
   meta: { color: Palette.muted, fontSize: 13 },
   note: { color: Palette.ink, fontSize: 14, marginTop: 2 },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Palette.bgElevated,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Palette.surfaceLine,
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm,
+    marginBottom: Space.lg,
+  },
+  offlineText: { color: Palette.muted, fontSize: 12, lineHeight: 17, flex: 1 },
   empty: { alignItems: 'center', marginTop: 80, gap: Space.sm },
   emptyTitle: { color: Palette.ink, fontSize: 17, fontWeight: '700' },
   emptyBody: { color: Palette.muted, fontSize: 14, textAlign: 'center' },

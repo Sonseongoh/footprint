@@ -288,7 +288,7 @@ export default function CityScreen() {
       getAuthState().catch(() => ({ email: null, isAnonymous: true })),
     ]);
     setIsGuest(auth.isAnonymous);
-    setMyCheckins(recs.filter((r) => r.country === country && r.regionId === regionId));
+    setMyCheckins(recs.records.filter((r) => r.country === country && r.regionId === regionId));
     setElig(e);
     setMyNote(mine);
     setNoteCount(count);

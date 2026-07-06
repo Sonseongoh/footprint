@@ -4,7 +4,14 @@
  * Merges synced events (server, photos via short-lived signed URLs — the photos
  * bucket is private) with still-pending offline queue rows (local photo uris),
  * newest first.
+ *
+ * Offline: the last successful server result is cached per user (traveling
+ * without data is this app's normal condition — the timeline must not read as
+ * "no records"). Cached rows render without photos (signed URLs expire and
+ * can't load offline anyway); `offline: true` lets the screen say so.
  */
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { pending } from '@/lib/syncQueue';
 import { supabase } from '@/lib/supabase';
 import type { CountryCode } from '@/types/domain';
@@ -22,9 +29,19 @@ export interface CheckinRecord {
   pendingSync: boolean;
 }
 
-const SIGNED_URL_TTL_S = 60 * 60;
+export interface RecordsResult {
+  records: CheckinRecord[];
+  /** true when the server was unreachable and synced rows came from the cache */
+  offline: boolean;
+}
 
-export async function getRecords(): Promise<CheckinRecord[]> {
+const SIGNED_URL_TTL_S = 60 * 60;
+const CACHE_PREFIX = 'records_cache_v1:';
+
+/** What we persist per synced row — no signed URLs (they expire in an hour). */
+type CachedRow = Omit<CheckinRecord, 'photoUrls' | 'pendingSync'> & { hasPhotos: boolean };
+
+export async function getRecords(): Promise<RecordsResult> {
   const out: CheckinRecord[] = [];
 
   // still-unsynced local check-ins (photo is a local file uri). The queue can
@@ -50,6 +67,7 @@ export async function getRecords(): Promise<CheckinRecord[]> {
   const queuedIds = new Set(queued.map((q) => q.id));
 
   // synced events from the server (skip ones still in the queue to avoid dupes)
+  let offline = false;
   try {
     const { data, error } = await supabase
       .from('visit_events')
@@ -70,6 +88,7 @@ export async function getRecords(): Promise<CheckinRecord[]> {
       }
     }
 
+    const cache: CachedRow[] = [];
     for (const r of rows) {
       const paths: string[] = r.photo_paths ?? [];
       out.push({
@@ -82,11 +101,38 @@ export async function getRecords(): Promise<CheckinRecord[]> {
         photoUrls: paths.map((p) => signed.get(p)).filter((u): u is string => Boolean(u)),
         pendingSync: false,
       });
+      cache.push({
+        id: r.id,
+        country: r.country as CountryCode,
+        regionId: r.region_id,
+        cityName: r.city_name,
+        note: r.note,
+        createdAt: r.created_at,
+        hasPhotos: paths.length > 0,
+      });
+    }
+    // remember this result for the next offline launch (per user — keyed so an
+    // account switch can never show someone else's cached timeline)
+    if (myId) {
+      void AsyncStorage.setItem(CACHE_PREFIX + myId, JSON.stringify(cache)).catch(() => {});
     }
   } catch {
-    // offline / backend unreachable — show local rows only
+    // offline / backend unreachable — fall back to the last synced snapshot
+    offline = true;
+    if (myId) {
+      try {
+        const raw = await AsyncStorage.getItem(CACHE_PREFIX + myId);
+        const cached: CachedRow[] = raw ? JSON.parse(raw) : [];
+        for (const r of cached) {
+          if (queuedIds.has(r.id)) continue;
+          out.push({ ...r, photoUrls: [], pendingSync: false });
+        }
+      } catch {
+        // corrupted/missing cache — show queue rows only
+      }
+    }
   }
 
   out.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-  return out;
+  return { records: out, offline };
 }

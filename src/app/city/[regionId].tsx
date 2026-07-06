@@ -391,7 +391,7 @@ export default function CityScreen() {
         style: 'destructive',
         onPress: async () => {
           try {
-            await deleteCityNote(myNote.id);
+            await deleteCityNote(myNote.id, myNote.photoPaths);
             setDraft('');
             await load();
           } catch (err) {
@@ -476,11 +476,12 @@ export default function CityScreen() {
                 <View style={styles.myNoteCard}>
                   <View style={styles.composeHead}>
                     <Text style={styles.composeTitle}>내 여행 공유</Text>
-                    {canWrite && (
-                      <Pressable onPress={onDelete} hitSlop={8} style={styles.trashBtn}>
-                        <Ionicons name="trash-outline" size={20} color={Palette.muted} />
-                      </Pressable>
-                    )}
+                    {/* deletion is ALWAYS allowed (server has no time gate on it —
+                        only edits close after 7 days); keep it outside canWrite so
+                        an accidental overshare can be removed anytime */}
+                    <Pressable onPress={onDelete} hitSlop={8} style={styles.trashBtn}>
+                      <Ionicons name="trash-outline" size={20} color={Palette.muted} />
+                    </Pressable>
                   </View>
                   <Text style={styles.noteBody}>{myNote.body}</Text>
                   <NotePhotos urls={myNote.photoUrls} onPress={setViewerUrl} />

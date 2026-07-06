@@ -152,7 +152,7 @@ export default function MeScreen() {
                   <Pressable
                     key={c.country}
                     style={styles.progressRow}
-                    onPress={() => router.push(`/explore?country=${c.country}`)}>
+                    onPress={() => router.push(`/explore?country=${c.country}&t=${Date.now()}`)}>
                     <View style={styles.progressHead}>
                       <Text style={styles.progressName}>{COUNTRIES[c.country].nameLocal}</Text>
                       <Text style={styles.progressCount}>

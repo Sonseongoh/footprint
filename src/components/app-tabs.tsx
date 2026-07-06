@@ -1,19 +1,19 @@
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import { useColorScheme } from 'react-native';
 
-import { Colors } from '@/constants/theme';
+import { Palette } from '@/constants/footprint-theme';
 
 export default function AppTabs() {
-  const scheme = useColorScheme();
-  const colors = Colors[scheme === 'unspecified' ? 'light' : scheme];
-
+  // The app is dark-by-design (every screen hardcodes Palette.bg). The tab bar
+  // must match — following the system scheme gave light-mode devices a white
+  // bar under navy screens.
   return (
     <NativeTabs
-      backgroundColor={colors.background}
-      indicatorColor={colors.backgroundElement}
+      backgroundColor={Palette.bg}
+      indicatorColor={Palette.surface}
       labelVisibilityMode="labeled" // always show labels under icons (Android)
-      labelStyle={{ selected: { color: colors.text } }}>
-      <NativeTabs.Trigger name="globe">
+      labelStyle={{ selected: { color: Palette.ink } }}>
+      {/* the globe IS the app's front door (index) — first impression on launch */}
+      <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>지구</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           md={{ default: 'public', selected: 'public' }}
@@ -21,7 +21,7 @@ export default function AppTabs() {
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="index">
+      <NativeTabs.Trigger name="checkin">
         <NativeTabs.Trigger.Label>체크인</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           md={{ default: 'pin_drop', selected: 'pin_drop' }}

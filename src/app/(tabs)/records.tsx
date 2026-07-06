@@ -6,7 +6,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -69,6 +69,14 @@ export default function RecordsScreen() {
     const set = new Set(records.map((r) => r.country));
     return (['KR', 'JP', 'TH'] as CountryCode[]).filter((c) => set.has(c));
   }, [records]);
+
+  // A stale filter can hide everything with no visible chips to clear it (e.g.
+  // filtered to JP, then switched to an account with only KR records) — drop
+  // the filter as soon as it no longer matches any record.
+  useEffect(() => {
+    if (loaded && filter && !presentCountries.includes(filter)) setFilter(null);
+  }, [loaded, filter, presentCountries]);
+
   const shown = filter ? records.filter((r) => r.country === filter) : records;
 
   const load = useCallback(async () => {

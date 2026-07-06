@@ -356,9 +356,12 @@ export async function updateCityNote(
   }
 }
 
-export async function deleteCityNote(id: string): Promise<void> {
+/** Delete a note and (best-effort) its photos — the note-photos bucket is
+ *  public, so orphaned files would stay reachable by URL forever. */
+export async function deleteCityNote(id: string, photoPaths: string[] = []): Promise<void> {
   const { error } = await supabase.from('city_notes').delete().eq('id', id);
   if (error) throw new Error(error.message);
+  for (const p of photoPaths) await deleteNotePhoto(p);
 }
 
 /**

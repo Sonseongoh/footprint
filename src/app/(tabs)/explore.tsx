@@ -21,12 +21,15 @@ export default function MapScreen() {
   const countries = useMemo(() => availableCountries(), []);
   const [country, setCountry] = useState<CountryCode>(countries[0] ?? 'JP');
 
-  // globe tap → /explore?country=XX
-  const params = useLocalSearchParams<{ country?: string }>();
+  // globe tap → /explore?country=XX&t=nonce. The nonce matters: without it,
+  // re-tapping the SAME country on the globe after switching countries here
+  // leaves params.country unchanged, the effect never re-fires, and the map
+  // stays on the wrong country.
+  const params = useLocalSearchParams<{ country?: string; t?: string }>();
   useEffect(() => {
     const c = params.country as CountryCode | undefined;
     if (c && countries.includes(c)) setCountry(c);
-  }, [params.country, countries]);
+  }, [params.country, params.t, countries]);
   // KR fills by 시 (city areas) over a 도 backdrop; JP/TH fill by admin-1 + city points
   const regions = useMemo(() => loadFillUnits(country), [country]);
   const background = useMemo(() => loadBackground(country), [country]);

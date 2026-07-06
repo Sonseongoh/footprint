@@ -29,6 +29,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Palette, Space } from '@/constants/footprint-theme';
 import { loadFillUnits } from '@/data';
 import { getAuthState } from '@/lib/auth';
+import { blockUser } from '@/lib/blocks';
 import { regionNameKo } from '@/data/names-ko';
 import { pickFromLibrary, takePhoto } from '@/lib/photo';
 import {
@@ -185,13 +186,15 @@ export default function CityScreen() {
         setLoadingMore(true);
       }
       try {
-        const page = await getCityNotes(country, regionId, {
+        const { notes, rawCount } = await getCityNotes(country, regionId, {
           sort: sortRef.current,
           offset: offsetRef.current,
         });
-        offsetRef.current += page.length;
-        hasMoreRef.current = page.length === NOTES_PAGE_SIZE;
-        const others = page.filter((n) => !n.mine);
+        // advance by the pre-filter count — blocked authors are removed from
+        // `notes` but still occupy rows in the server's ordering
+        offsetRef.current += rawCount;
+        hasMoreRef.current = rawCount === NOTES_PAGE_SIZE;
+        const others = notes.filter((n) => !n.mine);
         setOtherNotes((prev) => (reset ? others : [...prev, ...others]));
       } finally {
         loadingRef.current = false;
@@ -257,15 +260,40 @@ export default function CityScreen() {
 
   function onReport(note: CityNote) {
     if (requireLogin('신고')) return;
-    Alert.alert('신고', '이 여행 공유를 부적절한 내용으로 신고할까요?', [
+    Alert.alert(`${note.authorNickname}님의 여행 공유`, undefined, [
       { text: '취소', style: 'cancel' },
       {
-        text: '신고',
+        text: '이 글 신고하기',
         style: 'destructive',
         onPress: () => {
           reportNote(note.id)
             .then(() => Alert.alert('신고됐어요', '검토 후 조치할게요. 알려주셔서 감사합니다.'))
             .catch((e) => Alert.alert('신고 실패', e instanceof Error ? e.message : ''));
+        },
+      },
+      {
+        text: '이 작성자 차단하기',
+        style: 'destructive',
+        onPress: () => {
+          Alert.alert(
+            '작성자 차단',
+            `${note.authorNickname}님의 여행 공유가 더 이상 보이지 않아요. 계정 화면에서 언제든 해제할 수 있어요.`,
+            [
+              { text: '취소', style: 'cancel' },
+              {
+                text: '차단',
+                style: 'destructive',
+                onPress: () => {
+                  blockUser(note.userId)
+                    .then(() =>
+                      // remove everything by this author from the visible list now
+                      setOtherNotes((prev) => prev.filter((n) => n.userId !== note.userId)),
+                    )
+                    .catch((e) => Alert.alert('차단 실패', e instanceof Error ? e.message : ''));
+                },
+              },
+            ],
+          );
         },
       },
     ]);
@@ -667,11 +695,10 @@ function NoteRow({
       <Text style={styles.noteBody}>{note.body}</Text>
       <NotePhotos urls={note.photoUrls} onPress={(u) => onPhotoPress?.(u)} />
       <View style={styles.noteFooter}>
-        {/* report — only on other people's shares */}
+        {/* report/block menu — only on other people's shares */}
         {onReport && !note.mine ? (
           <Pressable style={styles.reportBtn} hitSlop={8} onPress={() => onReport(note)}>
-            <Ionicons name="flag-outline" size={14} color={Palette.muted} />
-            <Text style={styles.reportText}>신고</Text>
+            <Ionicons name="ellipsis-horizontal" size={16} color={Palette.muted} />
           </Pressable>
         ) : (
           <View />

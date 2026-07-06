@@ -5,6 +5,7 @@
  * 0007_city_notes.sql). This module also exposes the same 7-day window to the
  * client so the UI can show eligibility + a countdown before the write fails.
  */
+import { getBlockedUserIds } from '@/lib/blocks';
 import { deleteNotePhoto, notePhotoUrl, uploadNotePhoto } from '@/lib/photoUpload';
 import { getNicknames } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
@@ -57,13 +58,15 @@ export interface WriteEligibility {
 /**
  * One page of public notes for a place. `sort` is 신규순(recent) or 추천순(popular,
  * by like count); `offset` drives infinite scroll. Resolves author nicknames and
- * the signed-in user's like state per note.
+ * the signed-in user's like state per note. Blocked authors are filtered out,
+ * so `rawCount` (pre-filter row count) is returned alongside — advance offsets
+ * and decide has-more by rawCount, not notes.length.
  */
 export async function getCityNotes(
   country: CountryCode,
   regionId: string,
   opts: { sort: NoteSort; offset: number; limit?: number },
-): Promise<CityNote[]> {
+): Promise<{ notes: CityNote[]; rawCount: number }> {
   const limit = opts.limit ?? NOTES_PAGE_SIZE;
   const { data: session } = await supabase.auth.getSession();
   const myId = session.session?.user?.id ?? null;
@@ -78,8 +81,13 @@ export async function getCityNotes(
     opts.sort === 'popular'
       ? q.order('like_count', { ascending: false }).order('created_at', { ascending: false })
       : q.order('created_at', { ascending: false });
-  const { data, error } = await q.range(opts.offset, opts.offset + limit - 1);
-  if (error || !data) return [];
+  const { data: page, error } = await q.range(opts.offset, opts.offset + limit - 1);
+  if (error || !page) return { notes: [], rawCount: 0 };
+
+  // hide notes from authors the user has blocked (UGC policy: block = my feed
+  // no longer shows them; content itself is untouched)
+  const blocked = await getBlockedUserIds();
+  const data = page.filter((r) => !blocked.has(r.user_id));
 
   const ids = data.map((r) => r.id);
   const [nicks, liked] = await Promise.all([
@@ -87,7 +95,7 @@ export async function getCityNotes(
     likedNoteIds(myId, ids),
   ]);
 
-  return data.map((r) => {
+  const notes = data.map((r) => {
     const paths: string[] = r.photo_paths ?? [];
     return {
       id: r.id,
@@ -106,6 +114,7 @@ export async function getCityNotes(
       likedByMe: liked.has(r.id),
     };
   });
+  return { notes, rawCount: page.length };
 }
 
 /** Total number of visible notes for a place (for the header count). */

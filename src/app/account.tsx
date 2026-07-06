@@ -294,6 +294,12 @@ export default function AccountScreen() {
               </View>
             ) : (
               <>
+                {/* blocked-user management lives on its own screen */}
+                <Pressable style={styles.settingsRow} onPress={() => router.push('/blocked')}>
+                  <Text style={styles.settingsRowText}>차단 관리</Text>
+                  <Ionicons name="chevron-forward" size={16} color={Palette.muted} />
+                </Pressable>
+
                 <Pressable
                   style={[styles.signOutBtn, busy && styles.btnDim]}
                   disabled={busy}
@@ -385,6 +391,18 @@ const styles = StyleSheet.create({
   deleteText: { color: '#E5705B', fontSize: 14, fontWeight: '700' },
   privacyLink: { alignItems: 'center', paddingVertical: Space.sm },
   privacyLinkText: { color: Palette.muted, fontSize: 13, textDecorationLine: 'underline' },
+  settingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Palette.bgElevated,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.surfaceLine,
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.md,
+  },
+  settingsRowText: { color: Palette.ink, fontSize: 15, fontWeight: '600' },
   signOutBtn: {
     borderWidth: 1,
     borderColor: Palette.surfaceLine,

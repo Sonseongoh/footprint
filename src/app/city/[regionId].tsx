@@ -234,6 +234,8 @@ export default function CityScreen() {
   const [nickname, setNickname] = useState<string | null>(null);
   // guests are viewers: likes/reports route to login instead of writing
   const [isGuest, setIsGuest] = useState(true);
+  // server unreachable — show an offline notice instead of a fake "공유 0"
+  const [notesOffline, setNotesOffline] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   const [draft, setDraft] = useState('');
@@ -260,10 +262,15 @@ export default function CityScreen() {
         setLoadingMore(true);
       }
       try {
-        const { notes, rawCount } = await getCityNotes(country, regionId, {
+        const { notes, rawCount, failed } = await getCityNotes(country, regionId, {
           sort: sortRef.current,
           offset: offsetRef.current,
         });
+        if (failed) {
+          setNotesOffline(true);
+          return;
+        }
+        setNotesOffline(false);
         // advance by the pre-filter count — blocked authors are removed from
         // `notes` but still occupy rows in the server's ordering
         offsetRef.current += rawCount;
@@ -291,7 +298,9 @@ export default function CityScreen() {
     setMyCheckins(recs.records.filter((r) => r.country === country && r.regionId === regionId));
     setElig(e);
     setMyNote(mine);
-    setNoteCount(count);
+    // count null = server unreachable; keep 0 for display but flag offline
+    setNoteCount(count ?? 0);
+    if (count === null) setNotesOffline(true);
     setNickname(prof?.nickname ?? null);
     setDraft(mine?.body ?? '');
     setPhotos(
@@ -496,7 +505,8 @@ export default function CityScreen() {
           scrollEventThrottle={400}>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.sub}>
-            {COUNTRIES[country].nameLocal} · 가본 사람들의 여행 공유 {noteCount}
+            {COUNTRIES[country].nameLocal} · 가본 사람들의 여행 공유
+            {notesOffline ? '' : ` ${noteCount}`}
           </Text>
 
           {!loaded ? (
@@ -544,6 +554,16 @@ export default function CityScreen() {
                 <Text style={styles.sectionTitleGold}>여행 공유</Text>
                 <Text style={styles.sectionTagGold}>공개</Text>
               </View>
+
+              {/* server unreachable — say so instead of faking an empty board */}
+              {notesOffline && (
+                <View style={styles.offlineCard}>
+                  <Ionicons name="cloud-offline-outline" size={16} color={Palette.muted} />
+                  <Text style={styles.offlineCardText}>
+                    오프라인이에요. 연결되면 이 도시의 여행 공유를 볼 수 있어요.
+                  </Text>
+                </View>
+              )}
 
               {/* my existing note — read view with an explicit 수정 button */}
               {myNote && !editing && (
@@ -656,8 +676,9 @@ export default function CityScreen() {
                 </View>
               )}
 
-              {/* can't write and have no note here — explain how to unlock */}
-              {!canWrite && !myNote && (
+              {/* can't write and have no note here — explain how to unlock.
+                  (skip while offline: eligibility can't be trusted then) */}
+              {!canWrite && !myNote && !notesOffline && (
                 <View style={styles.lockedCard}>
                   {isGuest ? (
                     <>
@@ -712,7 +733,7 @@ export default function CityScreen() {
               />
             ))}
             {loadingMore && <ActivityIndicator color={Palette.gold} style={{ marginVertical: Space.md }} />}
-            {loaded && noteCount === 0 && (
+            {loaded && noteCount === 0 && !notesOffline && (
               <Text style={styles.emptyNotes}>아직 이 도시의 여행 공유가 없어요. 첫 공유를 남겨보세요.</Text>
             )}
           </View>
@@ -950,6 +971,18 @@ const styles = StyleSheet.create({
     borderColor: Palette.surfaceLine,
     gap: 4,
   },
+  offlineCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Palette.bgElevated,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.surfaceLine,
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm,
+  },
+  offlineCardText: { color: Palette.muted, fontSize: 13, lineHeight: 18, flex: 1 },
   lockedTitle: { color: Palette.ink, fontSize: 15, fontWeight: '700' },
   lockedBody: { color: Palette.muted, fontSize: 13, lineHeight: 19 },
   lockedLoginBtn: {

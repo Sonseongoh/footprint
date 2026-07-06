@@ -60,13 +60,15 @@ export interface WriteEligibility {
  * by like count); `offset` drives infinite scroll. Resolves author nicknames and
  * the signed-in user's like state per note. Blocked authors are filtered out,
  * so `rawCount` (pre-filter row count) is returned alongside — advance offsets
- * and decide has-more by rawCount, not notes.length.
+ * and decide has-more by rawCount, not notes.length. `failed: true` means the
+ * server was unreachable — the screen must show "offline", NOT "no notes yet"
+ * (an empty result must never masquerade as a fact it isn't).
  */
 export async function getCityNotes(
   country: CountryCode,
   regionId: string,
   opts: { sort: NoteSort; offset: number; limit?: number },
-): Promise<{ notes: CityNote[]; rawCount: number }> {
+): Promise<{ notes: CityNote[]; rawCount: number; failed: boolean }> {
   const limit = opts.limit ?? NOTES_PAGE_SIZE;
   const { data: session } = await supabase.auth.getSession();
   const myId = session.session?.user?.id ?? null;
@@ -82,7 +84,7 @@ export async function getCityNotes(
       ? q.order('like_count', { ascending: false }).order('created_at', { ascending: false })
       : q.order('created_at', { ascending: false });
   const { data: page, error } = await q.range(opts.offset, opts.offset + limit - 1);
-  if (error || !page) return { notes: [], rawCount: 0 };
+  if (error || !page) return { notes: [], rawCount: 0, failed: true };
 
   // hide notes from authors the user has blocked (UGC policy: block = my feed
   // no longer shows them; content itself is untouched)
@@ -114,17 +116,22 @@ export async function getCityNotes(
       likedByMe: liked.has(r.id),
     };
   });
-  return { notes, rawCount: page.length };
+  return { notes, rawCount: page.length, failed: false };
 }
 
-/** Total number of visible notes for a place (for the header count). */
-export async function getCityNoteCount(country: CountryCode, regionId: string): Promise<number> {
-  const { count } = await supabase
+/** Total number of visible notes for a place (for the header count).
+ *  Returns null when the server is unreachable — 0 would be a lie. */
+export async function getCityNoteCount(
+  country: CountryCode,
+  regionId: string,
+): Promise<number | null> {
+  const { count, error } = await supabase
     .from('city_notes')
     .select('id', { count: 'exact', head: true })
     .eq('country', country)
     .eq('region_id', regionId)
     .eq('is_visible', true);
+  if (error) return null;
   return count ?? 0;
 }
 

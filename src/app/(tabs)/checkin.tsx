@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -255,11 +256,17 @@ export default function CheckinScreen() {
           )}
 
           {phase === 'denied' && (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>위치 권한이 필요해요</Text>
-              <Text style={styles.cardBody}>
-                설정에서 위치 접근을 허용하면 현장 인증을 할 수 있습니다.
-              </Text>
+            <View style={styles.center}>
+              <View style={styles.deniedCard}>
+                <Text style={styles.cardTitle}>위치 권한이 필요해요</Text>
+                <Text style={styles.deniedBody}>
+                  현장 인증을 하려면 위치 접근이 필요해요.{'\n'}설정에서 위치 권한을 허용해 주세요.
+                </Text>
+                <Pressable style={styles.settingsBtn} onPress={() => Linking.openSettings()}>
+                  <Ionicons name="settings-outline" size={16} color={Palette.gold} />
+                  <Text style={styles.settingsBtnText}>설정 열기</Text>
+                </Pressable>
+              </View>
             </View>
           )}
 
@@ -444,6 +451,31 @@ const styles = StyleSheet.create({
   },
   cardTitle: { color: Palette.ink, fontSize: 18, fontWeight: '700' },
   cardBody: { color: Palette.muted, fontSize: 15, lineHeight: 22 },
+  deniedCard: {
+    width: '100%',
+    backgroundColor: Palette.bgElevated,
+    borderRadius: 18,
+    padding: Space.xl,
+    gap: Space.md,
+    borderWidth: 1,
+    borderColor: Palette.surfaceLine,
+    alignItems: 'center',
+  },
+  deniedBody: { color: Palette.muted, fontSize: 15, lineHeight: 22, textAlign: 'center' },
+  settingsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    gap: 6,
+    marginTop: Space.xl,
+    borderWidth: 1,
+    borderColor: Palette.gold,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: Space.lg,
+  },
+  settingsBtnText: { color: Palette.gold, fontSize: 14, fontWeight: '700' },
   okBadge: { color: Palette.gold, fontSize: 15, fontWeight: '700' },
   shareCta: {
     marginTop: Space.sm,

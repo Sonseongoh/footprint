@@ -54,6 +54,7 @@ export default function RootLayout() {
           <Stack.Screen name="account" />
           <Stack.Screen name="auth-callback" />
           <Stack.Screen name="blocked" />
+          <Stack.Screen name="nickname" />
           <Stack.Screen name="privacy" />
           <Stack.Screen name="city/[regionId]" />
           <Stack.Screen name="u/[slug]" />

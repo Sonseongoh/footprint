@@ -13,9 +13,28 @@
  */
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
+import { Alert, Linking } from 'react-native';
 
 const MAX_WIDTH = 1280;
 const COMPRESS = 0.7;
+
+/**
+ * When a photo permission is denied the picker silently won't open, which reads
+ * as a broken button. Tell the user why and offer a one-tap jump to the OS
+ * settings for this app (the only place a previously-denied permission can be
+ * re-granted).
+ */
+function showPermissionDeniedAlert(kind: 'library' | 'camera'): void {
+  const what = kind === 'camera' ? '카메라' : '사진';
+  Alert.alert(
+    `${what} 접근 권한이 필요해요`,
+    `설정에서 ${what} 접근을 허용하면 사진을 추가할 수 있어요.`,
+    [
+      { text: '취소', style: 'cancel' },
+      { text: '설정 열기', onPress: () => Linking.openSettings() },
+    ],
+  );
+}
 
 async function downscale(uri: string): Promise<string> {
   const context = ImageManipulator.manipulate(uri);
@@ -32,7 +51,10 @@ async function downscale(uri: string): Promise<string> {
  */
 export async function pickFromLibrary(selectionLimit = 1): Promise<string[]> {
   const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!perm.granted) return [];
+  if (!perm.granted) {
+    showPermissionDeniedAlert('library');
+    return [];
+  }
   const multiple = selectionLimit !== 1;
   const res = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['images'],
@@ -48,7 +70,10 @@ export async function pickFromLibrary(selectionLimit = 1): Promise<string[]> {
 /** Capture a photo with the camera. Returns the resized local uri, or null. */
 export async function takePhoto(): Promise<string | null> {
   const perm = await ImagePicker.requestCameraPermissionsAsync();
-  if (!perm.granted) return null;
+  if (!perm.granted) {
+    showPermissionDeniedAlert('camera');
+    return null;
+  }
   const res = await ImagePicker.launchCameraAsync({
     mediaTypes: ['images'],
     quality: 1,

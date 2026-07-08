@@ -17,6 +17,7 @@ import * as WebBrowser from 'expo-web-browser';
 
 import { flushQueue } from '@/lib/checkinService';
 import { clearLocalVisits, hydrateLocalFromServer } from '@/lib/localVisits';
+import { ensureNickname } from '@/lib/profile';
 import { ensureAnonymousSession, supabase } from '@/lib/supabase';
 
 export interface AuthState {
@@ -53,7 +54,17 @@ function friendlyAuthError(message: string): Error {
   if (/identity is already linked|already linked to another/i.test(message)) {
     return new Error('이 구글 계정은 다른 계정에 이미 연결돼 있어요. 그 계정으로 로그인해 주세요.');
   }
-  return new Error(message);
+  if (/email not confirmed/i.test(message)) {
+    return new Error('메일 확인이 아직 안 됐어요. 받은 메일의 링크를 눌러 가입을 완료해 주세요.');
+  }
+  if (/rate limit|too many requests/i.test(message)) {
+    return new Error('요청이 많아요. 잠시 후 다시 시도해 주세요.');
+  }
+  if (/network|fetch|timeout/i.test(message)) {
+    return new Error('네트워크 연결을 확인하고 다시 시도해 주세요.');
+  }
+  // don't leak raw English/backend errors into a Korean UI — generic fallback
+  return new Error('요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.');
 }
 
 /**
@@ -75,12 +86,16 @@ export async function signUpWithEmail(
     // convert the anonymous guest into a permanent email account (keeps data)
     const { data, error } = await supabase.auth.updateUser({ email, password });
     if (error) throw friendlyAuthError(error.message);
-    return { needsConfirm: !data.user?.email_confirmed_at };
+    const needsConfirm = !data.user?.email_confirmed_at;
+    if (!needsConfirm) await ensureNickname().catch(() => {}); // usable now → name it
+    return { needsConfirm };
   }
 
   const { data, error } = await supabase.auth.signUp({ email, password });
   if (error) throw friendlyAuthError(error.message);
-  return { needsConfirm: !data.session };
+  const needsConfirm = !data.session;
+  if (!needsConfirm) await ensureNickname().catch(() => {});
+  return { needsConfirm };
 }
 
 /**
@@ -93,6 +108,7 @@ async function switchLocalStateToCurrentUser(): Promise<void> {
   await clearLocalVisits();
   await flushQueue().catch(() => {});
   await hydrateLocalFromServer();
+  await ensureNickname().catch(() => {}); // random nickname on first account use
 }
 
 /** Sign into an existing account, replacing the current session. */

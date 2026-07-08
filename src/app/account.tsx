@@ -67,21 +67,22 @@ export default function AccountScreen() {
     return () => data.subscription.unsubscribe();
   }, [load]);
 
-  async function onSaveNickname() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await setMyNickname(nickname);
-      Alert.alert('저장됨', '닉네임이 저장됐어요.');
-    } catch (err) {
-      Alert.alert('저장 실패', err instanceof Error ? err.message : '');
-    } finally {
-      setBusy(false);
+  // client-side check so blank fields never reach Supabase (its English
+  // validation errors would otherwise surface raw in a Korean UI)
+  function invalidCredentials(): boolean {
+    if (!email.trim()) {
+      Alert.alert('이메일을 입력해 주세요');
+      return true;
     }
+    if (!password) {
+      Alert.alert('비밀번호를 입력해 주세요');
+      return true;
+    }
+    return false;
   }
 
   async function onSignUp() {
-    if (busy) return;
+    if (busy || invalidCredentials()) return;
     setBusy(true);
     try {
       const { needsConfirm } = await signUpWithEmail(email.trim(), password);
@@ -103,7 +104,7 @@ export default function AccountScreen() {
   }
 
   async function onSignIn() {
-    if (busy) return;
+    if (busy || invalidCredentials()) return;
     setBusy(true);
     try {
       await signInWithEmail(email.trim(), password);
@@ -222,24 +223,20 @@ export default function AccountScreen() {
               )}
             </View>
 
-            {/* nickname */}
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>닉네임 (여행 공유 작성자로 표시)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="닉네임"
-                placeholderTextColor={Palette.muted}
-                value={nickname}
-                onChangeText={setNickname}
-                maxLength={24}
-              />
-              <Pressable
-                style={[styles.btn, busy && styles.btnDim]}
-                disabled={busy}
-                onPress={onSaveNickname}>
-                <Text style={styles.btnText}>닉네임 저장</Text>
-              </Pressable>
-            </View>
+            {/* nickname — signed-in only. A guest can't write 여행 공유 (the only
+                place a nickname shows), and it'd save to the throwaway anonymous
+                profile that's discarded on login, so showing it just misleads. */}
+            {!auth.isAnonymous && (
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>닉네임 (여행 공유 작성자로 표시)</Text>
+                <View style={styles.nickRow}>
+                  <Text style={styles.nickValue}>{nickname || '—'}</Text>
+                  <Pressable style={styles.btnSmall} onPress={() => router.push('/nickname')}>
+                    <Text style={styles.btnText}>닉네임 변경</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
 
             {/* auth */}
             {auth.isAnonymous ? (
@@ -353,6 +350,16 @@ const styles = StyleSheet.create({
     paddingVertical: Space.sm,
     color: Palette.ink,
     fontSize: 15,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  nickRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  nickValue: { color: Palette.ink, fontSize: 16, fontWeight: '700', flex: 1 },
+  btnSmall: {
+    backgroundColor: Palette.gold,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: Space.md,
   },
   btn: {
     backgroundColor: Palette.gold,

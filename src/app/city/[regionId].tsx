@@ -221,6 +221,9 @@ export default function CityScreen() {
   }, [country, regionId]);
 
   const [otherNotes, setOtherNotes] = useState<CityNote[]>([]);
+  // mirror of otherNotes for the fetch closure (append needs the latest list
+  // without re-creating the callback on every page)
+  const otherNotesRef = useRef<CityNote[]>([]);
   const [noteCount, setNoteCount] = useState(0);
   const [sort, setSort] = useState<NoteSort>('popular');
   const [loadingMore, setLoadingMore] = useState(false);
@@ -228,6 +231,13 @@ export default function CityScreen() {
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(true);
   const loadingRef = useRef(false);
+  /**
+   * Per-sort snapshot so toggling 추천순↔최신순 is instant after the first fetch
+   * (it re-orders the same notes — no reason to make the user wait on a round
+   * trip again). We still refetch in the background to pick up new notes; a full
+   * screen reload (load()) clears it.
+   */
+  const sortCache = useRef<Partial<Record<NoteSort, { notes: CityNote[]; offset: number; hasMore: boolean }>>>({});
   const [myCheckins, setMyCheckins] = useState<CheckinRecord[]>([]);
   const [elig, setElig] = useState<WriteEligibility | null>(null);
   const [myNote, setMyNote] = useState<CityNote | null>(null);
@@ -276,7 +286,15 @@ export default function CityScreen() {
         offsetRef.current += rawCount;
         hasMoreRef.current = rawCount === NOTES_PAGE_SIZE;
         const others = notes.filter((n) => !n.mine);
-        setOtherNotes((prev) => (reset ? others : [...prev, ...others]));
+        const merged = reset ? others : [...otherNotesRef.current, ...others];
+        otherNotesRef.current = merged;
+        setOtherNotes(merged);
+        // remember this sort's result so switching back is instant
+        sortCache.current[sortRef.current] = {
+          notes: merged,
+          offset: offsetRef.current,
+          hasMore: hasMoreRef.current,
+        };
       } finally {
         loadingRef.current = false;
         setLoadingMore(false);
@@ -286,6 +304,7 @@ export default function CityScreen() {
   );
 
   const load = useCallback(async () => {
+    sortCache.current = {}; // full reload → snapshots are stale
     const [e, mine, prof, recs, count, auth] = await Promise.all([
       getWriteEligibility(country, regionId),
       getMyNote(country, regionId),
@@ -315,8 +334,44 @@ export default function CityScreen() {
     if (s === sortRef.current) return;
     sortRef.current = s;
     setSort(s);
+
+    // seen this sort already → show it immediately, then refresh quietly
+    const cached = sortCache.current[s];
+    if (cached) {
+      otherNotesRef.current = cached.notes;
+      setOtherNotes(cached.notes);
+      offsetRef.current = cached.offset;
+      hasMoreRef.current = cached.hasMore;
+      // background refresh: re-fetch only the first page so new notes appear
+      void refreshFirstPage(s);
+      return;
+    }
     fetchNotesPage(true);
   }
+
+  /** Silently re-fetch page 1 for `s` and update if it's still the active sort. */
+  const refreshFirstPage = useCallback(
+    async (s: NoteSort) => {
+      const { notes, rawCount, failed } = await getCityNotes(country, regionId, {
+        sort: s,
+        offset: 0,
+      }).catch(() => ({ notes: [], rawCount: 0, failed: true }));
+      if (failed || sortRef.current !== s) return; // stale or offline — keep the cache
+
+      const others = notes.filter((n) => !n.mine);
+      // only the first page is fresh; anything scrolled past stays as-is
+      const rest = otherNotesRef.current.slice(others.length);
+      const merged = [...others, ...rest];
+      otherNotesRef.current = merged;
+      setOtherNotes(merged);
+      sortCache.current[s] = {
+        notes: merged,
+        offset: Math.max(offsetRef.current, rawCount),
+        hasMore: hasMoreRef.current,
+      };
+    },
+    [country, regionId],
+  );
 
   // guests can look but not touch — explain and route to login
   function requireLogin(action: string): boolean {
@@ -331,12 +386,21 @@ export default function CityScreen() {
   function onToggleLike(note: CityNote) {
     if (requireLogin('좋아요')) return;
     const liked = !note.likedByMe;
-    const apply = (d: number, on: boolean) =>
-      setOtherNotes((prev) =>
-        prev.map((n) =>
+    const apply = (d: number, on: boolean) => {
+      const patch = (list: CityNote[]) =>
+        list.map((n) =>
           n.id === note.id ? { ...n, likedByMe: on, likeCount: Math.max(0, n.likeCount + d) } : n,
-        ),
-      );
+        );
+      const next = patch(otherNotesRef.current);
+      otherNotesRef.current = next;
+      setOtherNotes(next);
+      // keep the other sort's snapshot in step, or switching back would show
+      // the pre-like count
+      for (const key of ['popular', 'recent'] as NoteSort[]) {
+        const snap = sortCache.current[key];
+        if (snap) sortCache.current[key] = { ...snap, notes: patch(snap.notes) };
+      }
+    };
     apply(liked ? 1 : -1, liked); // optimistic
     toggleLike(note.id, liked).catch(() => apply(liked ? -1 : 1, !liked)); // revert on error
   }
@@ -368,10 +432,19 @@ export default function CityScreen() {
                 style: 'destructive',
                 onPress: () => {
                   blockUser(note.userId)
-                    .then(() =>
-                      // remove everything by this author from the visible list now
-                      setOtherNotes((prev) => prev.filter((n) => n.userId !== note.userId)),
-                    )
+                    .then(() => {
+                      // drop everything by this author from the list AND both
+                      // sort snapshots, so they can't reappear on a toggle
+                      const drop = (list: CityNote[]) =>
+                        list.filter((n) => n.userId !== note.userId);
+                      const next = drop(otherNotesRef.current);
+                      otherNotesRef.current = next;
+                      setOtherNotes(next);
+                      for (const key of ['popular', 'recent'] as NoteSort[]) {
+                        const snap = sortCache.current[key];
+                        if (snap) sortCache.current[key] = { ...snap, notes: drop(snap.notes) };
+                      }
+                    })
                     .catch((e) => Alert.alert('차단 실패', e instanceof Error ? e.message : ''));
                 },
               },
@@ -716,7 +789,7 @@ export default function CityScreen() {
               </Pressable>
               <Text style={styles.sortDot}>·</Text>
               <Pressable onPress={() => changeSort('recent')} hitSlop={6}>
-                <Text style={[styles.sortItem, sort === 'recent' && styles.sortItemOn]}>신규순</Text>
+                <Text style={[styles.sortItem, sort === 'recent' && styles.sortItemOn]}>최신순</Text>
               </Pressable>
             </View>
           )}

@@ -15,6 +15,7 @@
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 
+import { clearBlockCache } from '@/lib/blocks';
 import { flushQueue } from '@/lib/checkinService';
 import { clearLocalVisits, hydrateLocalFromServer } from '@/lib/localVisits';
 import { ensureNickname } from '@/lib/profile';
@@ -105,6 +106,7 @@ export async function signUpWithEmail(
  * show this account — including what just synced.
  */
 async function switchLocalStateToCurrentUser(): Promise<void> {
+  clearBlockCache(); // the previous account's block list must not leak
   await clearLocalVisits();
   await flushQueue().catch(() => {});
   await hydrateLocalFromServer();
@@ -121,6 +123,7 @@ export async function signInWithEmail(email: string, password: string): Promise<
 /** Sign out and return to a fresh anonymous guest (app always has a session). */
 export async function signOutToGuest(): Promise<void> {
   await supabase.auth.signOut();
+  clearBlockCache();
   await clearLocalVisits();
   await ensureAnonymousSession();
 }
@@ -248,6 +251,7 @@ export async function deleteAccount(): Promise<void> {
   if (error) throw new Error(error.message);
 
   await supabase.auth.signOut();
+  clearBlockCache();
   await clearLocalVisits();
   await ensureAnonymousSession();
 }

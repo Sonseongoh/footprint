@@ -4,16 +4,10 @@
 
 ## 보안 (출시 전 필수) — Security, MUST before launch
 
-### [ ] city_notes.like_count 클라이언트 쓰기 차단 (가짜 좋아요 방지)
-- **What:** `like_count`(및 향후 비정규화 카운터)를 클라이언트가 직접 INSERT/UPDATE 못 하게 막기. 좋아요 트리거(`apply_note_like`)만 변경 가능하게.
-- **Why:** anon 키는 앱에 들어있어 공개됨 → 누구나 API 직접 호출로 `like_count: 99999` 주입 가능 → 가짜 좋아요·**추천순 정렬 조작**. 추천 보드의 신뢰가 무너짐. (앱 자체는 like_count를 직접 안 쓰지만 DB가 강제하지 않음.)
-- **How:** 마이그레이션(≈0011) 컬럼 단위 revoke — SECURITY DEFINER 트리거(테이블 소유자 권한)만 통과:
-  ```sql
-  revoke insert (like_count), update (like_count)
-    on public.city_notes from anon, authenticated;
-  ```
-- **주의:** 적용하면 `scripts/seed-busan-bulk.js` 등 like_count를 직접 넣는 시드가 깨짐 → **더미 데이터는 막기 전에 다 만들 것.**
-- **상태:** 2026-06-22 보류(시드 더 만들 수 있게). 준비되면 적용.
+### [x] city_notes 시스템 컬럼 쓰기 차단 (0017, 2026-07-13)
+- like_count(가짜 좋아요·추천순 조작), created_at(최신순 영구 1위), is_visible(신고로 숨겨진 글 되살리기)을 클라이언트가 직접 못 쓰게 컬럼 권한 잠금.
+- 테이블 레벨 INSERT/UPDATE를 회수하고 저작 컬럼(body·photo_paths·updated_at 등)만 재부여. 트리거는 SECURITY DEFINER라 그대로 동작.
+- 더미데이터(3개국 9도시 54개)는 잠금 전에 시딩 완료. `scripts/seed-notes.js`는 잠금 후엔 시스템 컬럼 없이 폴백 삽입.
 
 ## 출시 설정 — 직접 해야 하는 외부 작업
 

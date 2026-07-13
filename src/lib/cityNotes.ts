@@ -56,7 +56,7 @@ export interface WriteEligibility {
 }
 
 /**
- * One page of public notes for a place. `sort` is 신규순(recent) or 추천순(popular,
+ * One page of public notes for a place. `sort` is 최신순(recent) or 추천순(popular,
  * by like count); `offset` drives infinite scroll. Resolves author nicknames and
  * the signed-in user's like state per note. Blocked authors are filtered out,
  * so `rawCount` (pre-filter row count) is returned alongside — advance offsets

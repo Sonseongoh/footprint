@@ -38,13 +38,22 @@ type Phase = 'idle' | 'locating' | 'result' | 'denied' | 'done';
 /** Max photos per check-in. */
 const MAX_CHECKIN_PHOTOS = 5;
 
-const TEST_POINTS: { label: string; pos: Position }[] = [
-  { label: '서울', pos: [126.978, 37.5665] },
-  { label: '수원', pos: [127.0089, 37.2911] },
-  { label: '부산', pos: [129.075, 35.1796] },
-  { label: '도쿄', pos: [139.6917, 35.6895] },
-  { label: '치앙마이', pos: [98.9853, 18.7883] },
-];
+/**
+ * Dev-only shortcuts that inject a fake GPS fix. These MUST never ship: the
+ * product's whole trust model is "only a real on-site GPS fix fills the map",
+ * and these buttons would let anyone check into Tokyo from their couch.
+ * `__DEV__` is false in release builds, so the row (and any use of these
+ * coordinates) is stripped from production.
+ */
+const TEST_POINTS: { label: string; pos: Position }[] = __DEV__
+  ? [
+      { label: '서울', pos: [126.978, 37.5665] },
+      { label: '수원', pos: [127.0089, 37.2911] },
+      { label: '부산', pos: [129.075, 35.1796] },
+      { label: '도쿄', pos: [139.6917, 35.6895] },
+      { label: '치앙마이', pos: [98.9853, 18.7883] },
+    ]
+  : [];
 
 // "한국 · 일본 · 태국" — derived from the bundled data so copy can't drift from
 // what the app actually supports (the old hardcoded string forgot Thailand).
@@ -388,7 +397,8 @@ export default function CheckinScreen() {
               <Text style={styles.secondaryText}>다시</Text>
             </Pressable>
           )}
-          {phase === 'idle' && !isGuest && (
+          {/* dev-only: fake GPS shortcuts, never rendered in a release build */}
+          {__DEV__ && phase === 'idle' && !isGuest && (
             <View style={styles.devRow}>
               {TEST_POINTS.map((t) => (
                 <Pressable key={t.label} style={styles.devBtn} onPress={() => runResolve(t.pos, 15)}>

@@ -44,3 +44,5 @@ example
 /android
 .gstack/
 .env
+
+tmp_geo/

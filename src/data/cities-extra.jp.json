@@ -1,7 +1,13 @@
 [
-  { "id": "x-hakone", "regionId": "JP-14", "country": "JP", "name": "Hakone", "nameLocal": "Hakone", "position": [139.1069, 35.2324] },
-  { "id": "x-kamakura", "regionId": "JP-14", "country": "JP", "name": "Kamakura", "nameLocal": "Kamakura", "position": [139.5469, 35.3192] },
-  { "id": "x-nikko", "regionId": "JP-09", "country": "JP", "name": "Nikko", "nameLocal": "Nikko", "position": [139.6982, 36.7198] },
-  { "id": "x-takayama", "regionId": "JP-21", "country": "JP", "name": "Takayama", "nameLocal": "Takayama", "position": [137.2522, 36.1461] },
-  { "id": "x-otaru", "regionId": "JP-01", "country": "JP", "name": "Otaru", "nameLocal": "Otaru", "position": [140.9947, 43.1907] }
+  { "id": "x-hakone", "regionId": "JP-14", "country": "JP", "name": "Hakone", "nameLocal": "Hakone", "nameKo": "하코네", "position": [139.1069, 35.2324] },
+  { "id": "x-kamakura", "regionId": "JP-14", "country": "JP", "name": "Kamakura", "nameLocal": "Kamakura", "nameKo": "가마쿠라", "position": [139.5469, 35.3192] },
+  { "id": "x-nikko", "regionId": "JP-09", "country": "JP", "name": "Nikko", "nameLocal": "Nikko", "nameKo": "닛코", "position": [139.6982, 36.7198] },
+  { "id": "x-takayama", "regionId": "JP-21", "country": "JP", "name": "Takayama", "nameLocal": "Takayama", "nameKo": "다카야마", "position": [137.2522, 36.1461] },
+  { "id": "x-otaru", "regionId": "JP-01", "country": "JP", "name": "Otaru", "nameLocal": "Otaru", "nameKo": "오타루", "position": [140.9947, 43.1907] },
+
+  { "id": "x-saga", "regionId": "JP-41", "country": "JP", "name": "Saga", "nameLocal": "Saga", "nameKo": "사가", "position": [130.2988, 33.2635] },
+  { "id": "x-kofu", "regionId": "JP-19", "country": "JP", "name": "Kofu", "nameLocal": "Kofu", "nameKo": "고후", "position": [138.5683, 35.6639] },
+  { "id": "x-yamagata", "regionId": "JP-06", "country": "JP", "name": "Yamagata", "nameLocal": "Yamagata", "nameKo": "야마가타", "position": [140.3633, 38.2554] },
+  { "id": "x-matsue", "regionId": "JP-32", "country": "JP", "name": "Matsue", "nameLocal": "Matsue", "nameKo": "마쓰에", "position": [133.0505, 35.4723] },
+  { "id": "x-tottori", "regionId": "JP-31", "country": "JP", "name": "Tottori", "nameLocal": "Tottori", "nameKo": "돗토리", "position": [134.2383, 35.5011] }
 ]

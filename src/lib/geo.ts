@@ -62,11 +62,23 @@ export function findRegion(pos: Position, regions: RegionFeature[]): string | nu
   return null;
 }
 
-/** Nearest bundled city point to `pos` (optionally constrained to a region). */
+/**
+ * A check-in only counts as visiting a city when a bundled city point is within
+ * this distance. Beyond it the check-in still fills the region, but no city is
+ * collected — snapping to a far-away city would record a place the user never
+ * set foot in ("가지 않은 곳은 기록될 수 없다"). Unbounded snapping used to
+ * turn a Krabi check-in into a Phuket visit 76km away. 40km keeps rural-but-
+ * real visits (regional hubs are usually within ~30km) while blocking those
+ * cross-region lies.
+ */
+export const MAX_CITY_SNAP_KM = 40;
+
+/** Nearest bundled city point to `pos` within `maxKm` (optionally region-constrained). */
 export function nearestCity(
   pos: Position,
   cities: CityPoint[],
   regionId?: string,
+  maxKm: number = MAX_CITY_SNAP_KM,
 ): CityPoint | null {
   let best: CityPoint | null = null;
   let bestKm = Infinity;
@@ -78,7 +90,7 @@ export function nearestCity(
       best = city;
     }
   }
-  return best;
+  return bestKm <= maxKm ? best : null;
 }
 
 export interface VerifyInput {
@@ -108,6 +120,10 @@ export function verifyCheckin({
   }
   const regionId = findRegion(pos, regions);
   if (!regionId) return { ok: false, reason: 'no-region', regionId: null, city: null };
-  const city = nearestCity(pos, cities, regionId) ?? nearestCity(pos, cities);
+  // City must belong to the matched region AND be within the snap cap — a
+  // country-wide fallback used to attribute a neighboring region's city to
+  // this check-in (visited-city ≠ where you stood). No nearby city in-region
+  // is a valid outcome: the check-in fills the region, city stays null.
+  const city = nearestCity(pos, cities, regionId);
   return { ok: true, reason: 'ok', regionId, city };
 }

@@ -28,9 +28,9 @@ update public.city_notes set like_count=26, created_at=now()-interval '12 days',
 update public.city_notes set like_count=19, created_at=now()-interval '18 days', updated_at=now()-interval '18 days' where region_id='jpc-sapporo' and body='삿포로 맥주 박물관 시음 코스. 갓 뽑은 생맥주 맛이 달라요.';
 update public.city_notes set like_count=12, created_at=now()-interval '26 days', updated_at=now()-interval '26 days' where region_id='jpc-sapporo' and body='니조시장 해산물 덮밥. 성게·연어알 올린 거 강추.';
 update public.city_notes set like_count=7, created_at=now()-interval '35 days', updated_at=now()-interval '35 days' where region_id='jpc-sapporo' and body='모이와야마 야경 — 일본 3대 야경이라던데 진짜 예뻐요.';
-update public.city_notes set like_count=31, created_at=now()-interval '6 days', updated_at=now()-interval '6 days' where region_id='jpc-naha' and body='츄라우미 수족관 고래상어. 오후 늦게 가면 사람 적어요.';
-update public.city_notes set like_count=24, created_at=now()-interval '13 days', updated_at=now()-interval '13 days' where region_id='jpc-naha' and body='코우리 대교 드라이브 — 바다 위를 달리는 기분이에요. 렌터카 필수.';
-update public.city_notes set like_count=16, created_at=now()-interval '20 days', updated_at=now()-interval '20 days' where region_id='jpc-naha' and body='아메리칸 빌리지 야경. 일본 같지 않은 분위기예요.';
+update public.city_notes set like_count=31, created_at=now()-interval '6 days', updated_at=now()-interval '6 days' where region_id='jpc-naha' and body='마키시 공설시장 1층에서 해산물 사면 2층 식당에서 조리해줘요. 아침에 가야 싱싱해요.';
+update public.city_notes set like_count=24, created_at=now()-interval '13 days', updated_at=now()-interval '13 days' where region_id='jpc-naha' and body='슈리성 성벽 산책로는 무료예요. 복원 공사 과정을 공개하는 것도 볼거리.';
+update public.city_notes set like_count=16, created_at=now()-interval '20 days', updated_at=now()-interval '20 days' where region_id='jpc-naha' and body='츠보야 야치문(도자기) 거리 — 국제거리에서 걸어서 10분인데 분위기가 확 조용해져요.';
 update public.city_notes set like_count=10, created_at=now()-interval '28 days', updated_at=now()-interval '28 days' where region_id='jpc-naha' and body='국제거리보다 뒷골목 이자카야가 좋아요. 오키나와 소바 꼭.';
 update public.city_notes set like_count=28, created_at=now()-interval '7 days', updated_at=now()-interval '7 days' where region_id='jpc-nagoya' and body='히츠마부시(장어덮밥) — 세 가지 방식으로 먹는 게 재밌어요.';
 update public.city_notes set like_count=18, created_at=now()-interval '15 days', updated_at=now()-interval '15 days' where region_id='jpc-nagoya' and body='나고야성 천수각은 공사 중일 수 있어요. 혼마루 어전은 볼만해요.';

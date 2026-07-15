@@ -35,7 +35,8 @@ const VIEW_H = 460;
 const PAD = 0.94;
 const MIN_SCALE = 1;
 const MAX_SCALE = 5;
-const UNIT_FONT = 8;
+const REGION_FONT = 8;
+const UNIT_FONT = 6;
 // Labels are counter-scaled by scale^LABEL_EXP (not full scale), so on-screen
 // text grows ~scale^(1-LABEL_EXP) as you zoom in — readable at deep zoom while
 // still shrinking RELATIVE to the map so more small cities reveal. cull() uses
@@ -111,9 +112,21 @@ export function CountryFillMap({
   // zoom in. Kept as state (not the animated value) so the cull memo can read it.
   const [zoomLevel, setZoomLevel] = useState(1);
 
-  const { polys, bgPolys, rawLabels } = useMemo(() => {
-    const empty = { polys: [] as Poly[], bgPolys: [] as Poly[], rawLabels: [] as UnitLabel[] };
+  const { polys, bgPolys, rawLabels, rawRegionLabels } = useMemo(() => {
+    const empty = {
+      polys: [] as Poly[],
+      bgPolys: [] as Poly[],
+      rawLabels: [] as UnitLabel[],
+      rawRegionLabels: [] as UnitLabel[],
+    };
     if (regions.length === 0) return empty;
+
+    // a backdrop region reads as visited when any of its cities is
+    const visitedParents = new Set<string>();
+    for (const f of regions) {
+      const parent = (f.properties as { regionId?: string }).regionId;
+      if (parent && visits[f.properties.id]) visitedParents.add(parent);
+    }
 
     // bounds span both the fill units and the backdrop so they align
     let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
@@ -137,16 +150,43 @@ export function CountryFillMap({
       (maxLat - lat) * s + offY,
     ];
     const bgPolys: Poly[] = [];
+    const rawRegionLabels: UnitLabel[] = [];
     for (const f of background) {
+      let largest: [number, number][] = [];
       outerRings(f).forEach((ring, i) => {
         const pts: string[] = [];
+        const proj: [number, number][] = [];
         for (const [lng, lat] of ring) {
-          const [x, y] = project(lng, lat);
-          pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+          const xy = project(lng, lat);
+          proj.push(xy);
+          pts.push(`${xy[0].toFixed(1)},${xy[1].toFixed(1)}`);
         }
         // darker than the fill units so unvisited cities read as distinct tiles
-        if (pts.length > 2) bgPolys.push({ key: `bg-${f.properties.id}-${i}`, points: pts.join(' '), fill: Palette.bgElevated });
+        if (pts.length > 2) {
+          bgPolys.push({ key: `bg-${f.properties.id}-${i}`, points: pts.join(' '), fill: Palette.bgElevated });
+          if (proj.length > largest.length) largest = proj;
+        }
       });
+      // mid-zoom orientation tier: 도/현/주 names over the backdrop
+      if (largest.length) {
+        let cx = 0, cy = 0, lx = Infinity, ly = Infinity, hx = -Infinity, hy = -Infinity;
+        for (const [x, y] of largest) {
+          cx += x; cy += y;
+          if (x < lx) lx = x;
+          if (x > hx) hx = x;
+          if (y < ly) ly = y;
+          if (y > hy) hy = y;
+        }
+        const visited = visitedParents.has(f.properties.id);
+        rawRegionLabels.push({
+          key: f.properties.id,
+          x: cx / largest.length,
+          y: cy / largest.length,
+          text: regionNameKo(f.properties.id, f.properties.name),
+          visited,
+          weight: (visited ? 1e9 : 0) + (hx - lx) * (hy - ly),
+        });
+      }
     }
 
     const polys: Poly[] = [];
@@ -189,11 +229,15 @@ export function CountryFillMap({
       }
     }
 
-    return { polys, bgPolys, rawLabels };
+    return { polys, bgPolys, rawLabels, rawRegionLabels };
   }, [regions, visits, background]);
 
   // re-cull on settled zoom only (cheap) — projection above doesn't re-run
   const labels = useMemo(() => cull(rawLabels, UNIT_FONT, zoomLevel), [rawLabels, zoomLevel]);
+  const regionLabels = useMemo(
+    () => cull(rawRegionLabels, REGION_FONT, zoomLevel),
+    [rawRegionLabels, zoomLevel],
+  );
 
   const W = Dimensions.get('window').width - 48;
   const H = W * (VIEW_H / VIEW_W);
@@ -208,6 +252,19 @@ export function CountryFillMap({
   const ty = useSharedValue(0);
   const savedTx = useSharedValue(0);
   const savedTy = useSharedValue(0);
+
+  // Switching country swaps the polygons but this component stays mounted —
+  // without a reset the new country inherits the old one's zoom/pan (panned
+  // off-screen, or past the label tiers) and looks broken/label-less.
+  useEffect(() => {
+    scale.value = 1;
+    savedScale.value = 1;
+    tx.value = 0;
+    ty.value = 0;
+    savedTx.value = 0;
+    savedTy.value = 0;
+    setZoomLevel(1);
+  }, [regions, scale, savedScale, tx, ty, savedTx, savedTy]);
 
   const pinch = Gesture.Pinch()
     .onUpdate((e) => {
@@ -298,11 +355,15 @@ export function CountryFillMap({
   // end and the text visibly snaps the instant you lift your fingers. The ^EXP
   // (LABEL_EXP < 1) lets on-screen text grow gently with zoom so it's readable at
   // max zoom. Set on the group; SVG font-size inherits to the child <SvgText>.
-  // City-area labels are unreadably dense at country zoom → fade in from 1.25x
-  // and stay (they're the only label layer).
+  // Two label tiers crossfade with a small gap: mid-zoom shows 도/현/주 for
+  // orientation, deep zoom hands over to the (much denser) city names.
+  const regionLabelProps = useAnimatedProps(() => ({
+    fontSize: REGION_FONT / Math.pow(scale.value, LABEL_EXP),
+    opacity: interpolate(scale.value, [1.25, 1.7, 2.2, 2.6], [0, 1, 1, 0], Extrapolation.CLAMP),
+  }));
   const labelProps = useAnimatedProps(() => ({
     fontSize: UNIT_FONT / Math.pow(scale.value, LABEL_EXP),
-    opacity: interpolate(scale.value, [1.25, 1.7], [0, 1], Extrapolation.CLAMP),
+    opacity: interpolate(scale.value, [2.7, 3.1], [0, 1], Extrapolation.CLAMP),
   }));
 
   const inner = (
@@ -323,6 +384,21 @@ export function CountryFillMap({
             onPress={onSelectRegion && p.regionId ? () => onSelectRegion(p.regionId!) : undefined}
           />
         ))}
+
+          <AnimatedG animatedProps={regionLabelProps}>
+            {regionLabels.map((l) => (
+              <SvgText
+                key={`r-${l.key}`}
+                x={l.x}
+                y={l.y}
+                fontWeight={l.visited ? '700' : '400'}
+                fill={l.visited ? Palette.ink : Palette.muted}
+                textAnchor="middle"
+                alignmentBaseline="middle">
+                {l.text}
+              </SvgText>
+            ))}
+          </AnimatedG>
 
           <AnimatedG animatedProps={labelProps}>
             {labels.map((l) => (

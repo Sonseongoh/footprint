@@ -23,15 +23,17 @@ import { runOnJS } from 'react-native-reanimated';
 import Svg, {
   Circle,
   Defs,
+  G,
   Polygon,
   RadialGradient,
+  Rect,
   Stop,
   Text as SvgText,
 } from 'react-native-svg';
 
 import { Palette } from '@/constants/footprint-theme';
 import { countryNameKo } from '@/data/names-ko';
-import type { CountryCode } from '@/types/domain';
+import { COUNTRIES, type CountryCode } from '@/types/domain';
 
 type CountryFeature = Feature<Geometry, { iso: string; nameKo: string }>;
 const world = require('@/data/world.json') as { features: CountryFeature[] };
@@ -79,6 +81,32 @@ interface GlobeLabel {
 const LABEL_FONT = 7;
 /** zoom level from which country names appear */
 const LABEL_ZOOM = 1.6;
+
+/** stable chip anchors for the collectable countries (ring centroids wobble) */
+const CHIP_ANCHORS: Record<CountryCode, [number, number]> = {
+  KR: [127.8, 36.3],
+  JP: [138.7, 36.8],
+  TH: [101.0, 15.5],
+};
+const CHIP_FLAGS: Record<CountryCode, string> = { KR: '🇰🇷', JP: '🇯🇵', TH: '🇹🇭' };
+const CHIP_FONT = 7.5;
+const CHIP_H = 14;
+/** per-country pill offset [dx, lift] — KR/JP sit close, so fan them apart */
+const CHIP_OFFSETS: Record<CountryCode, [number, number]> = {
+  KR: [-22, 30],
+  JP: [16, 14],
+  TH: [0, 21],
+};
+
+interface Chip {
+  cc: CountryCode;
+  x: number;
+  y: number;
+  w: number;
+  dx: number;
+  lift: number;
+  visited: boolean;
+}
 
 /** greedy collision cull (same approach as the country fill map) */
 function cullLabels(labels: GlobeLabel[]): GlobeLabel[] {
@@ -159,7 +187,8 @@ export function CountryGlobe({ onSelectCountry, visitedCountries = EMPTY_VISITED
           if (!best || area > best.area) best = { sx, sy, n: pts.length, area };
         }
       });
-      if (best && f.properties.nameKo) {
+      // active countries carry a permanent chip instead of a zoom-gated label
+      if (best && f.properties.nameKo && !active) {
         const b = best as { sx: number; sy: number; n: number; area: number };
         rawLabels.push({
           key: `l${fi}`,
@@ -169,11 +198,29 @@ export function CountryGlobe({ onSelectCountry, visitedCountries = EMPTY_VISITED
           text: countryNameKo(f.properties.iso, f.properties.nameKo),
           active,
           visited,
-          weight: (active ? 1e9 : 0) + b.area,
+          weight: b.area,
         });
       }
     });
     return { shapes, labels: cullLabels(rawLabels) };
+  }, [projection, center, visitedCountries]);
+
+  // "지원 나라" chips — always visible so the tappable countries are obvious
+  // at a glance (faint outlines alone were easy to miss). Front hemisphere only.
+  const chips = useMemo(() => {
+    const out: Chip[] = [];
+    for (const cc of ['KR', 'JP', 'TH'] as CountryCode[]) {
+      const anchor = CHIP_ANCHORS[cc];
+      if (angle(anchor, center) > 80) continue; // behind / hugging the limb
+      const xy = projection(anchor);
+      if (!xy) continue;
+      const name = COUNTRIES[cc].nameLocal;
+      // flag glyph ≈ 9 + gap 3 + hangul ≈ 7.6/char + padding
+      const w = 9 + 3 + name.length * 7.6 + 12;
+      const [dx, lift] = CHIP_OFFSETS[cc];
+      out.push({ cc, x: xy[0], y: xy[1], w, dx, lift, visited: visitedCountries.has(cc) });
+    }
+    return out;
   }, [projection, center, visitedCountries]);
 
   const size = Dimensions.get('window').width - 48;
@@ -265,9 +312,21 @@ export function CountryGlobe({ onSelectCountry, visitedCountries = EMPTY_VISITED
       runOnJS(commitPinch)();
     });
 
-  // ── tap an active country ─────────────────────────────────────────────────
+  // ── tap an active country (or its chip) ──────────────────────────────────
   function handleTap(x: number, y: number) {
     if (!onSelectCountry) return;
+    // chips first — they float above the anchor, often over sea, where the
+    // projection-inversion country test below would miss
+    const vx = x / toView;
+    const vy = y / toView;
+    for (const c of chips) {
+      const cx = c.x + c.dx;
+      const y1 = c.y - c.lift + CHIP_H + 2; // +2: forgiving touch slop
+      if (vx > cx - c.w / 2 - 2 && vx < cx + c.w / 2 + 2 && vy > c.y - c.lift - 2 && vy < y1) {
+        onSelectCountry(c.cc);
+        return;
+      }
+    }
     const inverted = projection.invert?.([x / toView, y / toView]);
     if (!inverted) return;
     // ignore taps outside the globe disk
@@ -340,6 +399,35 @@ export function CountryGlobe({ onSelectCountry, visitedCountries = EMPTY_VISITED
               {l.text}
             </SvgText>
           ))}
+        {/* collectable-country chips — the "start here" affordance */}
+        {chips.map((c) => (
+          <G key={`chip-${c.cc}`}>
+            {/* leader dot pinning the pill to its country */}
+            <Circle cx={c.x} cy={c.y - 3.5} r={1.6} fill={Palette.gold} />
+            <Rect
+              x={c.x + c.dx - c.w / 2}
+              y={c.y - c.lift}
+              width={c.w}
+              height={CHIP_H}
+              rx={CHIP_H / 2}
+              fill={c.visited ? Palette.gold : Palette.bgElevated}
+              stroke={Palette.gold}
+              strokeOpacity={c.visited ? 1 : 0.55}
+              strokeWidth={0.6}
+            />
+            <SvgText
+              x={c.x + c.dx}
+              y={c.y - c.lift + CHIP_H / 2 + 0.5}
+              fontSize={CHIP_FONT}
+              fontWeight="700"
+              fill={c.visited ? Palette.bg : Palette.ink}
+              textAnchor="middle"
+              alignmentBaseline="middle">
+              {`${CHIP_FLAGS[c.cc]} ${COUNTRIES[c.cc].nameLocal}`}
+            </SvgText>
+          </G>
+        ))}
+
         {/* rim */}
         <Circle
           cx={VIEW / 2}

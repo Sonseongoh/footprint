@@ -106,12 +106,12 @@ export default function MapScreen() {
           />
         </View>
 
+        {filledCount === 0 && (
+          <Text style={styles.emptyHint}>체크인하면 도시가 채워집니다.</Text>
+        )}
         <View style={styles.legend}>
           <Legend color={Palette.gold} label="방문" />
           <Legend color={Palette.slate} label="미방문" outline />
-          {filledCount === 0 && (
-            <Text style={styles.emptyHint}>체크인하면 도시가 채워집니다.</Text>
-          )}
         </View>
       </SafeAreaView>
     </View>
@@ -165,5 +165,5 @@ const styles = StyleSheet.create({
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: Space.xs },
   legendDot: { width: 12, height: 12, borderRadius: 3 },
   legendText: { color: Palette.muted, fontSize: 13 },
-  emptyHint: { color: Palette.muted, fontSize: 13 },
+  emptyHint: { color: Palette.muted, fontSize: 13, textAlign: 'center', marginBottom: Space.sm },
 });

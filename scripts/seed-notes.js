@@ -170,7 +170,7 @@ const CITIES = [
 
   // ── 🇯🇵 일본 ──
   {
-    country: 'JP', regionId: 'JP-13', cityName: '도쿄', lat: 35.6895, lng: 139.6917,
+    country: 'JP', regionId: 'jpc-tokyo', cityName: '도쿄', lat: 35.6895, lng: 139.6917,
     notes: [
       ['시부야 스크램블은 스타벅스 2층에서 보는 게 제일 잘 보여요.', 45, 2],
       ['신주쿠 골든가이 근처 라멘집들. 자판기로 주문하는 곳이 대부분이에요.', 37, 6],
@@ -181,7 +181,7 @@ const CITIES = [
     ],
   },
   {
-    country: 'JP', regionId: 'JP-27', cityName: '오사카', lat: 34.6937, lng: 135.5023,
+    country: 'JP', regionId: 'jpc-osaka', cityName: '오사카', lat: 34.6937, lng: 135.5023,
     notes: [
       ['도톤보리 글리코 간판 앞은 항상 사람 많아요. 밤에 조명 켜지면 예뻐요.', 39, 3],
       ['타코야키는 체인보다 골목 노점이 나아요. 갓 구운 거 뜨거우니 조심.', 32, 8],
@@ -191,7 +191,7 @@ const CITIES = [
     ],
   },
   {
-    country: 'JP', regionId: 'JP-26', cityName: '교토', lat: 35.0116, lng: 135.7681,
+    country: 'JP', regionId: 'jpc-kyoto', cityName: '교토', lat: 35.0116, lng: 135.7681,
     notes: [
       ['후시미이나리 천 개의 토리이 — 새벽 6시 가면 아무도 없어요. 강추.', 44, 1],
       ['아라시야마 대나무숲은 오전 8시 전에. 늦으면 사진 못 찍어요.', 36, 5],
@@ -201,7 +201,7 @@ const CITIES = [
     ],
   },
   {
-    country: 'JP', regionId: 'JP-40', cityName: '후쿠오카', lat: 33.5904, lng: 130.4017,
+    country: 'JP', regionId: 'jpc-fukuoka', cityName: '후쿠오카', lat: 33.5904, lng: 130.4017,
     notes: [
       ['나카스 포장마차(야타이)는 저녁 6시부터. 라멘이랑 명란 계란말이.', 34, 4],
       ['이치란 본점보다 동네 돈코츠 라멘집이 더 진해요. 카에다마 꼭.', 27, 10],
@@ -211,7 +211,7 @@ const CITIES = [
     ],
   },
   {
-    country: 'JP', regionId: 'JP-01', cityName: '삿포로', lat: 43.0621, lng: 141.3544,
+    country: 'JP', regionId: 'jpc-sapporo', cityName: '삿포로', lat: 43.0621, lng: 141.3544,
     notes: [
       ['스스키노 징기스칸 — 양고기 냄새 걱정했는데 전혀 안 나요.', 33, 5],
       ['오타루 운하까지 전철로 40분. 겨울 눈 쌓인 풍경이 그림이에요.', 26, 12],
@@ -221,7 +221,8 @@ const CITIES = [
     ],
   },
   {
-    country: 'JP', regionId: 'JP-47', cityName: '오키나와', lat: 26.2124, lng: 127.6809,
+    // 폴리곤 모델에선 섬이 아니라 도시가 게시판 — 오키나와가 아닌 나하
+    country: 'JP', regionId: 'jpc-naha', cityName: '나하', lat: 26.2124, lng: 127.6809,
     notes: [
       ['츄라우미 수족관 고래상어. 오후 늦게 가면 사람 적어요.', 31, 6],
       ['코우리 대교 드라이브 — 바다 위를 달리는 기분이에요. 렌터카 필수.', 24, 13],
@@ -230,7 +231,7 @@ const CITIES = [
     ],
   },
   {
-    country: 'JP', regionId: 'JP-23', cityName: '나고야', lat: 35.1815, lng: 136.9066,
+    country: 'JP', regionId: 'jpc-nagoya', cityName: '나고야', lat: 35.1815, lng: 136.9066,
     notes: [
       ['히츠마부시(장어덮밥) — 세 가지 방식으로 먹는 게 재밌어요.', 28, 7],
       ['나고야성 천수각은 공사 중일 수 있어요. 혼마루 어전은 볼만해요.', 18, 15],
@@ -241,7 +242,7 @@ const CITIES = [
 
   // ── 🇹🇭 태국 ──
   {
-    country: 'TH', regionId: 'TH-10', cityName: '방콕', lat: 13.7563, lng: 100.5018,
+    country: 'TH', regionId: 'thc-bangkok', cityName: '방콕', lat: 13.7563, lng: 100.5018,
     notes: [
       ['짜뚜짝 주말시장은 아침 일찍. 오후엔 더워서 못 돌아다녀요.', 41, 4],
       ['왓아룬은 강 건너에서 보는 야경이 더 예뻐요. 배 타고 건너세요.', 34, 7],
@@ -251,7 +252,7 @@ const CITIES = [
     ],
   },
   {
-    country: 'TH', regionId: 'TH-50', cityName: '치앙마이', lat: 18.7883, lng: 98.9853,
+    country: 'TH', regionId: 'thc-chiangmai', cityName: '치앙마이', lat: 18.7883, lng: 98.9853,
     notes: [
       ['치앙마이 올드시티는 자전거로 도는 게 좋아요. 사원이 골목마다 있어요.', 35, 3],
       ['도이수텝 사원 — 썽태우 타고 올라가요. 해질녘 뷰가 좋아요.', 29, 9],
@@ -261,7 +262,7 @@ const CITIES = [
     ],
   },
   {
-    country: 'TH', regionId: 'TH-83', cityName: '푸켓', lat: 7.8804, lng: 98.3923,
+    country: 'TH', regionId: 'thc-phuket', cityName: '푸껫', lat: 7.8804, lng: 98.3923,
     notes: [
       ['빠통은 번잡해요. 조용한 거 원하면 까따·까론 해변으로.', 30, 6],
       ['피피섬 투어는 스피드보트보다 페리가 덜 흔들려요. 멀미약 챙기세요.', 25, 11],
@@ -270,7 +271,7 @@ const CITIES = [
     ],
   },
   {
-    country: 'TH', regionId: 'TH-20', cityName: '파타야', lat: 12.9236, lng: 100.8825,
+    country: 'TH', regionId: 'thc-pattaya', cityName: '파타야', lat: 12.9236, lng: 100.8825,
     notes: [
       ['꼬란섬 당일치기 추천. 방콕에서 가까운데 물은 훨씬 맑아요.', 27, 5],
       ['진리의 성전(Sanctuary of Truth) — 통나무 조각이 압도적이에요.', 20, 12],
@@ -279,7 +280,7 @@ const CITIES = [
     ],
   },
   {
-    country: 'TH', regionId: 'TH-81', cityName: '끄라비', lat: 8.0863, lng: 98.9063,
+    country: 'TH', regionId: 'thc-krabi', cityName: '끄라비', lat: 8.0863, lng: 98.9063,
     notes: [
       ['라일레이 비치는 배로만 갈 수 있어요. 그래서 더 조용해요.', 29, 4],
       ['에메랄드 풀 + 온천 폭포 코스. 물색이 진짜 에메랄드예요.', 21, 14],
@@ -288,7 +289,7 @@ const CITIES = [
     ],
   },
   {
-    country: 'TH', regionId: 'TH-14', cityName: '아유타야', lat: 14.3532, lng: 100.5689,
+    country: 'TH', regionId: 'thc-ayutthaya', cityName: '아유타야', lat: 14.3532, lng: 100.5689,
     notes: [
       ['왓 마하탓 나무뿌리 불상 머리 — 사진 찍을 때 머리보다 낮게 앉아야 해요.', 26, 8],
       ['자전거 빌려서 유적 도는 게 최고. 하루면 충분해요.', 18, 16],

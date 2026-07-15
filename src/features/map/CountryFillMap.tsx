@@ -35,6 +35,9 @@ const VIEW_H = 460;
 const PAD = 0.94;
 const MIN_SCALE = 1;
 const MAX_SCALE = 5;
+/** initial zoom when a country opens — just enough that the region-name tier
+ *  (경기·홋카이도…) is already readable instead of a bare silhouette */
+const START_SCALE = 1.7;
 const REGION_FONT = 8;
 const UNIT_FONT = 6;
 // Labels are counter-scaled by scale^LABEL_EXP (not full scale), so on-screen
@@ -110,7 +113,7 @@ export function CountryFillMap({
 }: CountryFillMapProps) {
   // settled zoom (updated on gesture end) — re-culls labels so more reveal as you
   // zoom in. Kept as state (not the animated value) so the cull memo can read it.
-  const [zoomLevel, setZoomLevel] = useState(1);
+  const [zoomLevel, setZoomLevel] = useState(START_SCALE);
 
   const { polys, bgPolys, rawLabels, rawRegionLabels } = useMemo(() => {
     const empty = {
@@ -246,8 +249,8 @@ export function CountryFillMap({
   const renderScale = Math.min(Math.max(zoomLevel, 1), 3);
 
   // ── gestures ─────────────────────────────────────────────────────────────
-  const scale = useSharedValue(1);
-  const savedScale = useSharedValue(1);
+  const scale = useSharedValue(START_SCALE);
+  const savedScale = useSharedValue(START_SCALE);
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
   const savedTx = useSharedValue(0);
@@ -257,13 +260,13 @@ export function CountryFillMap({
   // without a reset the new country inherits the old one's zoom/pan (panned
   // off-screen, or past the label tiers) and looks broken/label-less.
   useEffect(() => {
-    scale.value = 1;
-    savedScale.value = 1;
+    scale.value = START_SCALE;
+    savedScale.value = START_SCALE;
     tx.value = 0;
     ty.value = 0;
     savedTx.value = 0;
     savedTy.value = 0;
-    setZoomLevel(1);
+    setZoomLevel(START_SCALE);
   }, [regions, scale, savedScale, tx, ty, savedTx, savedTy]);
 
   const pinch = Gesture.Pinch()

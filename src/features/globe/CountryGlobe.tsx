@@ -47,6 +47,8 @@ const INITIAL_CENTER: [number, number] = [115, 22];
 const DRAG_SENS = 0.35;
 
 const DEG = Math.PI / 180;
+/** back-hemisphere clip: keep vertices within ~89° of the view centre */
+const COS_CLIP = Math.cos(89 * DEG);
 
 /** great-circle angular distance (degrees) between two [lng,lat] points */
 function angle(a: [number, number], b: [number, number]): number {
@@ -61,6 +63,28 @@ function ringsOf(geom: Geometry): Position[][] {
   if (geom.type === 'MultiPolygon') return geom.coordinates.map((p) => p[0]);
   return [];
 }
+
+/**
+ * Pre-baked trig per ring vertex: [sinφ, cosφ, sinλ, cosλ] × n, indexed by
+ * feature. The per-frame orthographic projection then needs only multiplies
+ * and adds per vertex — the naive d3 path did 4 trig + acos per vertex per
+ * drag tick (the whole world, every frame), which is what made fast spins
+ * stutter.
+ */
+const BAKED_RINGS: Float64Array[][] = world.features.map((f) =>
+  ringsOf(f.geometry).map((ring) => {
+    const trig = new Float64Array(ring.length * 4);
+    ring.forEach((coord, i) => {
+      const l = (coord as [number, number])[0] * DEG;
+      const p = (coord as [number, number])[1] * DEG;
+      trig[i * 4] = Math.sin(p);
+      trig[i * 4 + 1] = Math.cos(p);
+      trig[i * 4 + 2] = Math.sin(l);
+      trig[i * 4 + 3] = Math.cos(l);
+    });
+    return trig;
+  }),
+);
 
 interface Shape {
   key: string;
@@ -159,26 +183,37 @@ export function CountryGlobe({ onSelectCountry, visitedCountries = EMPTY_VISITED
   const { shapes, labels } = useMemo(() => {
     const shapes: Shape[] = [];
     const rawLabels: GlobeLabel[] = [];
+    // per-frame constants of the orthographic aspect (see BAKED_RINGS note)
+    const l0 = center[0] * DEG;
+    const p0 = center[1] * DEG;
+    const sinP0 = Math.sin(p0), cosP0 = Math.cos(p0);
+    const sinL0 = Math.sin(l0), cosL0 = Math.cos(l0);
+    const k = R * zoom;
+    const cx = VIEW / 2, cy = VIEW / 2;
     world.features.forEach((f, fi) => {
       const active = ACTIVE.has(f.properties.iso);
       const visited = active && visitedCountries.has(f.properties.iso as CountryCode);
       let best: { sx: number; sy: number; n: number; area: number } | null = null;
-      ringsOf(f.geometry).forEach((ring, ri) => {
+      BAKED_RINGS[fi].forEach((trig, ri) => {
+        const n = trig.length / 4;
         const pts: string[] = [];
         let sx = 0, sy = 0;
         let lx = Infinity, ly = Infinity, hx = -Infinity, hy = -Infinity;
-        for (const coord of ring) {
-          const lnglat = coord as [number, number];
-          if (angle(lnglat, center) > 89) continue; // manual back-hemisphere clip
-          const xy = projection(lnglat);
-          if (xy) {
-            pts.push(`${xy[0].toFixed(1)},${xy[1].toFixed(1)}`);
-            sx += xy[0]; sy += xy[1];
-            if (xy[0] < lx) lx = xy[0];
-            if (xy[0] > hx) hx = xy[0];
-            if (xy[1] < ly) ly = xy[1];
-            if (xy[1] > hy) hy = xy[1];
-          }
+        for (let i = 0; i < n; i++) {
+          const sinP = trig[i * 4], cosP = trig[i * 4 + 1];
+          const sinL = trig[i * 4 + 2], cosL = trig[i * 4 + 3];
+          const cosDL = cosL * cosL0 + sinL * sinL0; // cos(λ−λ0)
+          const cosc = sinP0 * sinP + cosP0 * cosP * cosDL;
+          if (cosc < COS_CLIP) continue; // back-hemisphere clip
+          const sinDL = sinL * cosL0 - cosL * sinL0; // sin(λ−λ0)
+          const x = cx + k * cosP * sinDL;
+          const y = cy - k * (cosP0 * sinP - sinP0 * cosP * cosDL);
+          pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+          sx += x; sy += y;
+          if (x < lx) lx = x;
+          if (x > hx) hx = x;
+          if (y < ly) ly = y;
+          if (y > hy) hy = y;
         }
         if (pts.length > 2) {
           // fi in the key: several territories share an empty iso code
@@ -203,7 +238,7 @@ export function CountryGlobe({ onSelectCountry, visitedCountries = EMPTY_VISITED
       }
     });
     return { shapes, labels: cullLabels(rawLabels) };
-  }, [projection, center, visitedCountries]);
+  }, [center, zoom, visitedCountries]);
 
   // "지원 나라" chips — always visible so the tappable countries are obvious
   // at a glance (faint outlines alone were easy to miss). Front hemisphere only.
@@ -235,13 +270,32 @@ export function CountryGlobe({ onSelectCountry, visitedCountries = EMPTY_VISITED
       spinTimer.current = null;
     }
   }
-  useEffect(() => stopSpin, []);
+  useEffect(
+    () => () => {
+      stopSpin();
+      if (dragFrame.current != null) cancelAnimationFrame(dragFrame.current);
+    },
+    [],
+  );
+
+  // Gesture updates can arrive faster than frames render — coalesce them so at
+  // most one re-projection happens per frame (extra setCenter calls just pile
+  // up renders and read as stutter on fast spins).
+  const pendingDrag = useRef<{ dx: number; dy: number } | null>(null);
+  const dragFrame = useRef<number | null>(null);
 
   function applyDrag(dx: number, dy: number) {
-    const sens = DRAG_SENS / zoom;
-    const lng = dragStart[0] - dx * sens;
-    const lat = Math.min(75, Math.max(-75, dragStart[1] + dy * sens));
-    setCenter([lng, lat]);
+    pendingDrag.current = { dx, dy };
+    if (dragFrame.current != null) return;
+    dragFrame.current = requestAnimationFrame(() => {
+      dragFrame.current = null;
+      const d = pendingDrag.current;
+      if (!d) return;
+      const sens = DRAG_SENS / zoom;
+      const lng = dragStart[0] - d.dx * sens;
+      const lat = Math.min(75, Math.max(-75, dragStart[1] + d.dy * sens));
+      setCenter([lng, lat]);
+    });
   }
 
   /** decaying spin after release; velocity in px/s from the pan gesture */
@@ -277,6 +331,7 @@ export function CountryGlobe({ onSelectCountry, visitedCountries = EMPTY_VISITED
   /** grabbing the globe mid-spin: stop and re-anchor the drag at the current view */
   function beginDrag() {
     stopSpin();
+    pendingDrag.current = null; // a stale frame must not apply the old anchor
     commitDrag();
   }
 

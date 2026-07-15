@@ -107,8 +107,8 @@ export default function MapScreen() {
         </View>
 
         <View style={styles.legend}>
-          <Legend color={Palette.gold} label="방문 도시" />
-          <Legend color={Palette.slate} label="더 채울 곳" outline />
+          <Legend color={Palette.gold} label="방문" />
+          <Legend color={Palette.slate} label="미방문" outline />
           {filledCount === 0 && (
             <Text style={styles.emptyHint}>체크인하면 도시가 채워집니다.</Text>
           )}

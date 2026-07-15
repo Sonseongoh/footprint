@@ -358,15 +358,15 @@ export function CountryFillMap({
   // end and the text visibly snaps the instant you lift your fingers. The ^EXP
   // (LABEL_EXP < 1) lets on-screen text grow gently with zoom so it's readable at
   // max zoom. Set on the group; SVG font-size inherits to the child <SvgText>.
-  // Two label tiers crossfade with a small gap: mid-zoom shows 도/현/주 for
-  // orientation, deep zoom hands over to the (much denser) city names.
+  // Two label tiers CROSSFADE with overlap — the city tier is fully in before
+  // the region tier is fully out, so no zoom level ever shows zero labels.
   const regionLabelProps = useAnimatedProps(() => ({
     fontSize: REGION_FONT / Math.pow(scale.value, LABEL_EXP),
-    opacity: interpolate(scale.value, [1.25, 1.7, 2.2, 2.6], [0, 1, 1, 0], Extrapolation.CLAMP),
+    opacity: interpolate(scale.value, [1.25, 1.7, 2.4, 2.8], [0, 1, 1, 0], Extrapolation.CLAMP),
   }));
   const labelProps = useAnimatedProps(() => ({
     fontSize: UNIT_FONT / Math.pow(scale.value, LABEL_EXP),
-    opacity: interpolate(scale.value, [2.7, 3.1], [0, 1], Extrapolation.CLAMP),
+    opacity: interpolate(scale.value, [2.2, 2.6], [0, 1], Extrapolation.CLAMP),
   }));
 
   const inner = (

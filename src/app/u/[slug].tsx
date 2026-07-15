@@ -9,7 +9,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
-import { loadBackground, loadCities, loadFillUnits } from '@/data';
+import { loadBackground, loadFillUnits } from '@/data';
 import { CountryFillMap } from '@/features/map/CountryFillMap';
 import { getPublicUserShare, type UserShareData } from '@/lib/share';
 import { COUNTRIES, type CountryCode, type Visit } from '@/types/domain';
@@ -40,13 +40,9 @@ export default function PublicUserShareScreen() {
     };
   }, [slug]);
 
-  // KR fills by 시 (city areas) over a 도 backdrop; JP/TH fill by admin-1 + city points
+  // fill units = city areas (all countries), over an admin-1 backdrop
   const regions = useMemo(() => (country ? loadFillUnits(country) : []), [country]);
   const background = useMemo(() => (country ? loadBackground(country) : []), [country]);
-  const cities = useMemo(
-    () => (country && country !== 'KR' ? loadCities(country) : []),
-    [country],
-  );
 
   const share = country && data ? data.byCountry[country] : undefined;
 
@@ -84,14 +80,9 @@ export default function PublicUserShareScreen() {
     );
   }
 
-  // KR counts collected 시 (fill units); JP/TH count city points
-  const filledCities =
-    country === 'KR'
-      ? regions.filter((r) => visits[r.properties.id]).length
-      : share
-        ? cities.filter((c) => share.visitedCityIds.has(c.id)).length
-        : 0;
-  const totalCities = country === 'KR' ? regions.length : cities.length;
+  // collected city areas (the fill units ARE the cities)
+  const filledCities = regions.filter((r) => visits[r.properties.id]).length;
+  const totalCities = regions.length;
 
   return (
     <View style={styles.root}>
@@ -122,13 +113,7 @@ export default function PublicUserShareScreen() {
         </Text>
 
         <View style={styles.mapWrap}>
-          <CountryFillMap
-            regions={regions}
-            cities={cities}
-            visits={visits}
-            visitedCityIds={share?.visitedCityIds ?? new Set()}
-            background={background}
-          />
+          <CountryFillMap regions={regions} visits={visits} background={background} />
         </View>
 
         <Text style={styles.footer}>나도 내 지도를 채우고 싶다면 — footprint</Text>

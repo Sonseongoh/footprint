@@ -213,11 +213,11 @@ export default function CityScreen() {
   const regionId = String(params.regionId ?? '');
   const country = (params.country as CountryCode) ?? 'KR';
 
-  // display name of the place — resolve from the bundled fill units
+  // display name of the place — city areas carry a Korean name in all countries;
+  // regionNameKo only kicks in for legacy admin-1 ids (old JP/TH board links)
   const title = useMemo(() => {
     const feat = loadFillUnits(country).find((f) => f.properties.id === regionId);
-    const raw = feat?.properties.name ?? regionId;
-    return country === 'KR' ? raw : regionNameKo(regionId, raw);
+    return feat?.properties.name ?? regionNameKo(regionId, regionId);
   }, [country, regionId]);
 
   const [otherNotes, setOtherNotes] = useState<CityNote[]>([]);

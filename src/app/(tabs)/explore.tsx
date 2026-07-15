@@ -10,9 +10,9 @@ import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
-import { availableCountries, loadBackground, loadCities, loadFillUnits } from '@/data';
+import { availableCountries, loadBackground, loadFillUnits } from '@/data';
 import { CountryFillMap } from '@/features/map/CountryFillMap';
-import { getLocalVisitsByRegion, getVisitedCityIds } from '@/lib/localVisits';
+import { getLocalVisitsByRegion } from '@/lib/localVisits';
 import { ensureUserShare, userShareUrlFor } from '@/lib/share';
 import { COUNTRIES, type CountryCode, type Visit } from '@/types/domain';
 
@@ -30,12 +30,10 @@ export default function MapScreen() {
     const c = params.country as CountryCode | undefined;
     if (c && countries.includes(c)) setCountry(c);
   }, [params.country, params.t, countries]);
-  // KR fills by 시 (city areas) over a 도 backdrop; JP/TH fill by admin-1 + city points
+  // fill units = city areas (all countries), over an admin-1 backdrop
   const regions = useMemo(() => loadFillUnits(country), [country]);
   const background = useMemo(() => loadBackground(country), [country]);
-  const cities = useMemo(() => (country === 'KR' ? [] : loadCities(country)), [country]);
   const [visits, setVisits] = useState<Record<string, Visit>>({});
-  const [visitedCities, setVisitedCities] = useState<Set<string>>(new Set());
 
   // Reload the local fill state whenever the tab regains focus or the country
   // changes, so a check-in made on the other tab shows up immediately.
@@ -43,20 +41,15 @@ export default function MapScreen() {
     useCallback(() => {
       let active = true;
       getLocalVisitsByRegion(country).then((v) => active && setVisits(v));
-      getVisitedCityIds(country).then((s) => active && setVisitedCities(s));
       return () => {
         active = false;
       };
     }, [country]),
   );
 
-  // headline metric = collected cities. KR collects 시 (fill units); JP/TH the
-  // city points within their prefecture/province.
-  const filledCount =
-    country === 'KR'
-      ? regions.filter((r) => visits[r.properties.id]).length
-      : cities.filter((c) => visitedCities.has(c.id)).length;
-  const totalCount = country === 'KR' ? regions.length : cities.length;
+  // headline metric = collected cities (the fill units ARE the cities)
+  const filledCount = regions.filter((r) => visits[r.properties.id]).length;
+  const totalCount = regions.length;
 
   async function handleShare() {
     try {
@@ -105,9 +98,7 @@ export default function MapScreen() {
         <View style={styles.mapWrap}>
           <CountryFillMap
             regions={regions}
-            cities={cities}
             visits={visits}
-            visitedCityIds={visitedCities}
             background={background}
             onSelectRegion={(regionId) =>
               router.push({ pathname: '/city/[regionId]', params: { regionId, country } })

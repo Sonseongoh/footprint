@@ -1,16 +1,18 @@
 /**
  * Location verification for Footprint check-ins.
  *
- * v1 model (confirmed in /plan-eng-review delta, 2026-06-02): a check-in is
- * valid when the device GPS point falls inside an admin-1 region polygon
- * (point-in-polygon). The matched region is the fill/collection unit. The
- * nearest bundled city point gives the city-level depth/name, and works
- * offline (expo-location reverseGeocode needs network on iOS).
+ * Unified model (2026-07-14): every country collects by CITY-BOUNDARY polygons
+ * (KR 시, JP 시구정촌, TH 암프). A check-in is valid when the device GPS point
+ * falls inside a city polygon (point-in-polygon) — the matched polygon IS the
+ * collected city; there is no separate "nearest city point" concept. Standing
+ * outside every city polygon (rural 군 / countryside) is a clean rejection,
+ * never a snap to somewhere the user didn't stand ("가지 않은 곳은 기록될 수
+ * 없다").
  *
- *   device GPS ──▶ findRegion(pos, regions)  ── no match ──▶ "지원 구역 아님"
- *        │              │ match
- *        │              ▼
- *        └────────▶ nearestCity(pos, cities) ──▶ region + city + note + photo
+ *   device GPS ──▶ findRegion(pos, cityAreas) ── no match ──▶ "지원 지역 아님"
+ *                        │ match
+ *                        ▼
+ *                  city area id (= fill unit = board key) + note + photo
  *
  * Polygons come from bundled, simplified GeoJSON (src/data). Keep this module
  * pure (no I/O) so it is fully unit-testable.
@@ -18,7 +20,7 @@
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import type { Feature, MultiPolygon, Polygon } from 'geojson';
 
-import type { CityPoint, CountryCode, Position, Region } from '@/types/domain';
+import type { CountryCode, Position } from '@/types/domain';
 
 /** A region polygon feature. `properties.id` matches Region.id. */
 export type RegionFeature = Feature<
@@ -35,7 +37,6 @@ export interface VerifyResult {
   ok: boolean;
   reason: VerifyReason;
   regionId: string | null;
-  city: CityPoint | null;
 }
 
 /** Great-circle distance in km between two [lng, lat] positions. */
@@ -62,68 +63,30 @@ export function findRegion(pos: Position, regions: RegionFeature[]): string | nu
   return null;
 }
 
-/**
- * A check-in only counts as visiting a city when a bundled city point is within
- * this distance. Beyond it the check-in still fills the region, but no city is
- * collected — snapping to a far-away city would record a place the user never
- * set foot in ("가지 않은 곳은 기록될 수 없다"). Unbounded snapping used to
- * turn a Krabi check-in into a Phuket visit 76km away. 40km keeps rural-but-
- * real visits (regional hubs are usually within ~30km) while blocking those
- * cross-region lies.
- */
-export const MAX_CITY_SNAP_KM = 40;
-
-/** Nearest bundled city point to `pos` within `maxKm` (optionally region-constrained). */
-export function nearestCity(
-  pos: Position,
-  cities: CityPoint[],
-  regionId?: string,
-  maxKm: number = MAX_CITY_SNAP_KM,
-): CityPoint | null {
-  let best: CityPoint | null = null;
-  let bestKm = Infinity;
-  for (const city of cities) {
-    if (regionId && city.regionId !== regionId) continue;
-    const km = haversineKm(pos, city.position);
-    if (km < bestKm) {
-      bestKm = km;
-      best = city;
-    }
-  }
-  return bestKm <= maxKm ? best : null;
-}
-
 export interface VerifyInput {
   /** [lng, lat] from expo-location */
   pos: Position | null;
   /** coords.accuracy in meters, or null if unknown */
   accuracyM: number | null;
   regions: RegionFeature[];
-  cities: CityPoint[];
   maxAccuracyM?: number;
 }
 
 /**
- * Decide whether a check-in at `pos` is valid and resolve its region + city.
+ * Decide whether a check-in at `pos` is valid and resolve its collection unit.
  * Never throws — callers branch on `reason` to drive the check-in UX.
  */
 export function verifyCheckin({
   pos,
   accuracyM,
   regions,
-  cities,
   maxAccuracyM = MAX_ACCURACY_M,
 }: VerifyInput): VerifyResult {
-  if (!pos) return { ok: false, reason: 'no-fix', regionId: null, city: null };
+  if (!pos) return { ok: false, reason: 'no-fix', regionId: null };
   if (accuracyM != null && accuracyM > maxAccuracyM) {
-    return { ok: false, reason: 'low-accuracy', regionId: null, city: null };
+    return { ok: false, reason: 'low-accuracy', regionId: null };
   }
   const regionId = findRegion(pos, regions);
-  if (!regionId) return { ok: false, reason: 'no-region', regionId: null, city: null };
-  // City must belong to the matched region AND be within the snap cap — a
-  // country-wide fallback used to attribute a neighboring region's city to
-  // this check-in (visited-city ≠ where you stood). No nearby city in-region
-  // is a valid outcome: the check-in fills the region, city stays null.
-  const city = nearestCity(pos, cities, regionId);
-  return { ok: true, reason: 'ok', regionId, city };
+  if (!regionId) return { ok: false, reason: 'no-region', regionId: null };
+  return { ok: true, reason: 'ok', regionId };
 }

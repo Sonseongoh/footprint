@@ -2,8 +2,8 @@
  * Check-in tab. (The globe is the app's entry screen — (tabs)/index.tsx.)
  *
  * Flow: get GPS → resolveCheckin against every bundled country → show the
- * matched country / prefecture / nearest city (or a clear error) → record
- * locally (syncs to Supabase when a backend is configured).
+ * matched country + city area (or a clear error) → record locally (syncs to
+ * Supabase when a backend is configured).
  */
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -26,7 +26,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette, Space } from '@/constants/footprint-theme';
 import { availableCountries, loadFillUnits, resolveCheckin, type ResolvedCheckin } from '@/data';
-import { cityDisplayKo, regionNameKo } from '@/data/names-ko';
+import { regionNameKo } from '@/data/names-ko';
 import { getAuthState } from '@/lib/auth';
 import { recordCheckin } from '@/lib/checkinService';
 import { pickFromLibrary, takePhoto } from '@/lib/photo';
@@ -105,12 +105,19 @@ export default function CheckinScreen() {
     return () => data.subscription.unsubscribe();
   }, [refreshAuth]);
 
-  function regionDisplayName(country: ResolvedCheckin['country'], regionId: string | null) {
+  /** Matched city area's Korean name (`properties.name` is Korean everywhere). */
+  function cityAreaName(country: ResolvedCheckin['country'], regionId: string | null) {
     if (!country || !regionId) return '';
     const unit = loadFillUnits(country).find((r) => r.properties.id === regionId);
-    const en = unit?.properties.name ?? regionId;
-    // KR fill units (시) already carry a Korean name; JP/TH go through the overlay
-    return country === 'KR' ? en : regionNameKo(regionId, en);
+    return unit?.properties.name ?? regionId;
+  }
+
+  /** Parent admin-1 name (가나가와, 경기…) shown under the city title. */
+  function parentRegionName(country: ResolvedCheckin['country'], regionId: string | null) {
+    if (!country || !regionId) return '';
+    const unit = loadFillUnits(country).find((r) => r.properties.id === regionId);
+    const parentId = (unit?.properties as { regionId?: string } | undefined)?.regionId;
+    return parentId ? regionNameKo(parentId, parentId) : '';
   }
 
   function runResolve(pos: Position, accuracyM: number | null) {
@@ -151,7 +158,7 @@ export default function CheckinScreen() {
       runResolve([loc.coords.longitude, loc.coords.latitude], loc.coords.accuracy ?? null);
     } catch {
       if (attempt !== locateAttemptRef.current) return;
-      setResult({ ok: false, reason: 'no-fix', regionId: null, city: null, country: null });
+      setResult({ ok: false, reason: 'no-fix', regionId: null, country: null });
       setPhase('result');
     }
   }
@@ -173,8 +180,10 @@ export default function CheckinScreen() {
       await recordCheckin({
         userId: userId ?? 'local-only',
         regionId: result.regionId!,
-        cityId: result.city?.id ?? null,
-        cityName: result.city?.name ?? null,
+        // the city area IS the city — no separate point. cityName keeps the
+        // Korean name on the event row for readability/exports.
+        cityId: null,
+        cityName: cityAreaName(result.country, result.regionId) || null,
         country: result.country,
         lat: coords.pos[1],
         lng: coords.pos[0],
@@ -286,17 +295,17 @@ export default function CheckinScreen() {
                   <Text style={styles.okBadge}>
                     ✓ {result.country ? COUNTRIES[result.country].nameLocal : ''} 인증됨
                   </Text>
-                  {/* KR: the matched unit IS the 시 (no city point) → show it big */}
                   <Text style={styles.city}>
-                    {result.city
-                      ? cityDisplayKo(result.city)
-                      : regionDisplayName(result.country, result.regionId) || '도시'}
+                    {cityAreaName(result.country, result.regionId) || '도시'}
                   </Text>
-                  {result.city && (
-                    <Text style={styles.region}>
-                      {regionDisplayName(result.country, result.regionId)}
-                    </Text>
-                  )}
+                  {/* parent region, unless redundant (서울 under 서울) */}
+                  {(() => {
+                    const parent = parentRegionName(result.country, result.regionId);
+                    const city = cityAreaName(result.country, result.regionId);
+                    return parent && parent !== city ? (
+                      <Text style={styles.region}>{parent}</Text>
+                    ) : null;
+                  })()}
                   <TextInput
                     style={styles.input}
                     placeholder="체크인 메모 · 나만 봐요 (선택)"

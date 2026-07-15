@@ -194,11 +194,10 @@ export default function RecordsScreen() {
               <View style={styles.body}>
                 <View style={styles.row}>
                   <Text style={styles.city}>
-                    {item.country === 'KR'
-                      ? (fillIndex[`KR:${item.regionId}`]?.name ?? '체크인')
-                      : item.cityName
-                        ? cityNameKo(item.country, item.cityName)
-                        : '체크인'}
+                    {/* fill index covers current ids (krc-/jpc-/thc-); rows from
+                        the old JP/TH admin-1 model fall back to their cityName */}
+                    {fillIndex[`${item.country}:${item.regionId}`]?.name ??
+                      (item.cityName ? cityNameKo(item.country, item.cityName) : '체크인')}
                   </Text>
                   {/* every row is a check-in (private); 공유 is added on top when
                       its city also has a public 여행 공유 */}
@@ -216,12 +215,10 @@ export default function RecordsScreen() {
                 </View>
                 <Text style={styles.meta}>
                   {COUNTRIES[item.country].nameLocal} ·{' '}
-                  {item.country === 'KR'
-                    ? regionNameKo(
-                        fillIndex[`KR:${item.regionId}`]?.parent ?? '',
-                        fillIndex[`KR:${item.regionId}`]?.name ?? item.regionId,
-                      )
-                    : regionNameKo(item.regionId, item.regionId)}{' '}
+                  {regionNameKo(
+                    fillIndex[`${item.country}:${item.regionId}`]?.parent ?? item.regionId,
+                    fillIndex[`${item.country}:${item.regionId}`]?.name ?? item.regionId,
+                  )}{' '}
                   · {formatDate(item.createdAt)}
                 </Text>
                 {item.note ? <Text style={styles.note}>“{item.note}”</Text> : null}

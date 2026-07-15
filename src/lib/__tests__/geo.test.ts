@@ -1,18 +1,11 @@
-import type { CityPoint, Position } from '@/types/domain';
-import {
-  findRegion,
-  haversineKm,
-  MAX_CITY_SNAP_KM,
-  nearestCity,
-  verifyCheckin,
-  type RegionFeature,
-} from '@/lib/geo';
+import type { Position } from '@/types/domain';
+import { findRegion, haversineKm, verifyCheckin, type RegionFeature } from '@/lib/geo';
 
 /** Two adjacent 10x10 squares (lng,lat). A = [0..10], B = [10..20]. */
 function square(id: string, x0: number, x1: number): RegionFeature {
   return {
     type: 'Feature',
-    properties: { id, country: 'JP' },
+    properties: { id, country: 'JP', name: id, nameLocal: id },
     geometry: {
       type: 'Polygon',
       coordinates: [
@@ -30,12 +23,6 @@ function square(id: string, x0: number, x1: number): RegionFeature {
 
 const REGIONS: RegionFeature[] = [square('JP-A', 0, 10), square('JP-B', 10, 20)];
 
-const CITIES: CityPoint[] = [
-  { id: 'a1', regionId: 'JP-A', country: 'JP', name: 'A1', nameLocal: 'A1', position: [2, 2] },
-  { id: 'a2', regionId: 'JP-A', country: 'JP', name: 'A2', nameLocal: 'A2', position: [8, 8] },
-  { id: 'b1', regionId: 'JP-B', country: 'JP', name: 'B1', nameLocal: 'B1', position: [15, 5] },
-];
-
 describe('findRegion', () => {
   it('returns the region containing the point', () => {
     expect(findRegion([5, 5], REGIONS)).toBe('JP-A');
@@ -44,29 +31,6 @@ describe('findRegion', () => {
 
   it('returns null when the point is outside every region (sea / border gap)', () => {
     expect(findRegion([50, 50], REGIONS)).toBeNull();
-  });
-});
-
-describe('nearestCity', () => {
-  // fixture coordinates are degrees apart (1° ≈ 111km) — beyond the real snap
-  // cap by design, so distance-behavior tests pass an explicit maxKm
-  it('picks the closest city, constrained to a region', () => {
-    expect(nearestCity([2.5, 2.5], CITIES, 'JP-A', Infinity)?.id).toBe('a1');
-    expect(nearestCity([7.5, 7.5], CITIES, 'JP-A', Infinity)?.id).toBe('a2');
-  });
-
-  it('ignores cities outside the given region', () => {
-    // closest absolute point is b1, but constrained to JP-A it must not be picked
-    expect(nearestCity([9.9, 5], CITIES, 'JP-A', Infinity)?.regionId).toBe('JP-A');
-  });
-
-  it('refuses to snap to a city beyond the distance cap', () => {
-    // ~0.1° (~11km) away → within the 40km cap
-    expect(nearestCity([2.1, 2], CITIES, 'JP-A')?.id).toBe('a1');
-    // several degrees (hundreds of km) away → a far-away city must NOT be
-    // recorded as visited ("가지 않은 곳은 기록될 수 없다")
-    expect(nearestCity([5, 5], CITIES, 'JP-A')).toBeNull();
-    expect(MAX_CITY_SNAP_KM).toBeLessThanOrEqual(50); // guard against silent loosening
   });
 });
 
@@ -79,31 +43,28 @@ describe('haversineKm', () => {
 });
 
 describe('verifyCheckin', () => {
-  const base = { regions: REGIONS, cities: CITIES };
-
-  it('ok inside a region, resolving region + nearest city', () => {
-    const r = verifyCheckin({ ...base, pos: [2, 2], accuracyM: 20 });
+  it('ok inside a city polygon — the polygon IS the collected city', () => {
+    const r = verifyCheckin({ regions: REGIONS, pos: [2, 2], accuracyM: 20 });
     expect(r).toMatchObject({ ok: true, reason: 'ok', regionId: 'JP-A' });
-    expect(r.city?.id).toBe('a1');
   });
 
-  it('no-region when outside all polygons', () => {
-    const r = verifyCheckin({ ...base, pos: [99, 99], accuracyM: 10 });
-    expect(r).toMatchObject({ ok: false, reason: 'no-region', regionId: null, city: null });
+  it('no-region when outside all polygons — never snaps to a nearby city', () => {
+    const r = verifyCheckin({ regions: REGIONS, pos: [99, 99], accuracyM: 10 });
+    expect(r).toMatchObject({ ok: false, reason: 'no-region', regionId: null });
   });
 
   it('low-accuracy when the fix is too coarse', () => {
-    const r = verifyCheckin({ ...base, pos: [5, 5], accuracyM: 9999 });
+    const r = verifyCheckin({ regions: REGIONS, pos: [5, 5], accuracyM: 9999 });
     expect(r).toMatchObject({ ok: false, reason: 'low-accuracy' });
   });
 
   it('no-fix when there is no position', () => {
-    const r = verifyCheckin({ ...base, pos: null, accuracyM: null });
+    const r = verifyCheckin({ regions: REGIONS, pos: null, accuracyM: null });
     expect(r).toMatchObject({ ok: false, reason: 'no-fix' });
   });
 
   it('accepts an unknown accuracy (null) as long as the point is in a region', () => {
-    const r = verifyCheckin({ ...base, pos: [15, 5], accuracyM: null });
+    const r = verifyCheckin({ regions: REGIONS, pos: [15, 5], accuracyM: null });
     expect(r).toMatchObject({ ok: true, regionId: 'JP-B' });
   });
 });

@@ -1,15 +1,13 @@
 /**
- * Country fill map. Projects admin-1 region outlines (manual equirectangular fit
+ * Country fill map. Projects city-area outlines (manual equirectangular fit
  * — d3-geo's fitSize miscomputes under Hermes) into react-native-svg <Polygon>s.
  *
- * Collection model (도시 단위 깊이):
- *  - a region's gold fill is DEPTH-PROPORTIONAL: the more of its cities you've
- *    visited, the more saturated the gold (1/10 cities = faint, 10/10 = full).
- *  - city dots: visited cities are bright gold, unvisited faint — so empty
- *    cities stay visible and pull you back ("여수는 갔는데 순천은 안 갔네").
+ * Collection model: the fill units ARE the cities (KR 시, JP 시구정촌, TH 암프).
+ * A visited city fills gold; admin-1 backdrop polygons underneath keep the
+ * countryside between collectable cities reading as land, not holes.
  *
- * Labels never overlap (greedy collision cull). Province ↔ city labels crossfade
- * with a gap as you zoom. Pinch zoom / drag pan / double-tap reset.
+ * Labels never overlap (greedy collision cull) and reveal progressively as you
+ * zoom (visited first). Pinch zoom / drag pan.
  */
 import type { Position } from 'geojson';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -23,12 +21,12 @@ import Animated, {
   useSharedValue,
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
-import Svg, { Circle, G, Polygon, Text as SvgText } from 'react-native-svg';
+import Svg, { G, Polygon, Text as SvgText } from 'react-native-svg';
 
 import { Palette } from '@/constants/footprint-theme';
-import { cityDisplayKo, regionNameKo } from '@/data/names-ko';
+import { regionNameKo } from '@/data/names-ko';
 import type { RegionFeature } from '@/lib/geo';
-import type { CityPoint, Visit } from '@/types/domain';
+import type { Visit } from '@/types/domain';
 
 const AnimatedG = Animated.createAnimatedComponent(G);
 
@@ -37,33 +35,19 @@ const VIEW_H = 460;
 const PAD = 0.94;
 const MIN_SCALE = 1;
 const MAX_SCALE = 5;
-const PROVINCE_FONT = 8;
-const CITY_FONT = 6;
+const UNIT_FONT = 8;
 // Labels are counter-scaled by scale^LABEL_EXP (not full scale), so on-screen
 // text grows ~scale^(1-LABEL_EXP) as you zoom in — readable at deep zoom while
 // still shrinking RELATIVE to the map so more small cities reveal. cull() uses
 // the same exponent so its overlap boxes match the rendered size.
 const LABEL_EXP = 0.6;
-const FILL_FLOOR = 0.45; // gold intensity for 1 visited city (→ 1.0 when all done)
-
-/** linear blend between two #rrggbb colors */
-function mix(a: string, b: string, t: number): string {
-  const ai = parseInt(a.slice(1), 16);
-  const bi = parseInt(b.slice(1), 16);
-  const r = Math.round(((ai >> 16) & 255) + (((bi >> 16) & 255) - ((ai >> 16) & 255)) * t);
-  const g = Math.round(((ai >> 8) & 255) + (((bi >> 8) & 255) - ((ai >> 8) & 255)) * t);
-  const bl = Math.round((ai & 255) + ((bi & 255) - (ai & 255)) * t);
-  return `#${((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1)}`;
-}
 
 export interface CountryFillMapProps {
+  /** fill/collection units — the city areas */
   regions: RegionFeature[];
-  cities: CityPoint[];
-  /** visited regions keyed by regionId (region-level, for fallback tint) */
+  /** visited units keyed by regionId (= city area id) */
   visits: Record<string, Visit>;
-  /** ids of cities that have been checked into */
-  visitedCityIds: Set<string>;
-  /** backdrop polygons drawn under the fill units (KR: 도, for 군 coverage) */
+  /** backdrop polygons drawn under the fill units (admin-1, for rural coverage) */
   background?: RegionFeature[];
   /** tap a fill unit → open its city detail (notes). Omitted on share pages. */
   onSelectRegion?: (regionId: string) => void;
@@ -76,15 +60,7 @@ interface Poly {
   /** the fill unit's region id (fill polys only; backdrop polys omit it) */
   regionId?: string;
 }
-interface ProvinceLabel {
-  key: string;
-  x: number;
-  y: number;
-  text: string;
-  visited: boolean;
-  weight: number;
-}
-interface CityLabel {
+interface UnitLabel {
   key: string;
   x: number;
   y: number;
@@ -127,9 +103,7 @@ function cull<T extends { x: number; y: number; text: string; weight: number }>(
 
 export function CountryFillMap({
   regions,
-  cities,
   visits,
-  visitedCityIds,
   background = [],
   onSelectRegion,
 }: CountryFillMapProps) {
@@ -137,33 +111,9 @@ export function CountryFillMap({
   // zoom in. Kept as state (not the animated value) so the cull memo can read it.
   const [zoomLevel, setZoomLevel] = useState(1);
 
-  const { polys, bgPolys, rawProvinces, rawCities } = useMemo(() => {
-    const empty = {
-      polys: [] as Poly[],
-      bgPolys: [] as Poly[],
-      rawProvinces: [] as ProvinceLabel[],
-      rawCities: [] as CityLabel[],
-    };
+  const { polys, bgPolys, rawLabels } = useMemo(() => {
+    const empty = { polys: [] as Poly[], bgPolys: [] as Poly[], rawLabels: [] as UnitLabel[] };
     if (regions.length === 0) return empty;
-
-    // per-region city totals + visited counts → depth-proportional fill
-    const total: Record<string, number> = {};
-    const visitedCount: Record<string, number> = {};
-    for (const c of cities) {
-      total[c.regionId] = (total[c.regionId] ?? 0) + 1;
-      if (visitedCityIds.has(c.id)) {
-        visitedCount[c.regionId] = (visitedCount[c.regionId] ?? 0) + 1;
-      }
-    }
-    // depth-proportional: a region's gold deepens with the share of its cities
-    // visited. A clear floor so one visit already reads as "been here", reaching
-    // full gold only when the whole region is collected.
-    const fillFor = (regionId: string): string => {
-      const visited = Boolean(visits[regionId]) || (visitedCount[regionId] ?? 0) > 0;
-      if (!visited) return Palette.slate;
-      const ratio = total[regionId] ? (visitedCount[regionId] ?? 0) / total[regionId] : 1;
-      return mix(Palette.slate, Palette.gold, Math.min(1, FILL_FLOOR + (1 - FILL_FLOOR) * ratio));
-    };
 
     // bounds span both the fill units and the backdrop so they align
     let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
@@ -194,16 +144,16 @@ export function CountryFillMap({
           const [x, y] = project(lng, lat);
           pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
         }
-        // darker than the fill units so unvisited 시 read as distinct tiles
+        // darker than the fill units so unvisited cities read as distinct tiles
         if (pts.length > 2) bgPolys.push({ key: `bg-${f.properties.id}-${i}`, points: pts.join(' '), fill: Palette.bgElevated });
       });
     }
 
     const polys: Poly[] = [];
-    const rawProvinces: ProvinceLabel[] = [];
+    const rawLabels: UnitLabel[] = [];
     for (const f of regions) {
-      const fill = fillFor(f.properties.id);
-      const visited = fill !== Palette.slate;
+      const visited = Boolean(visits[f.properties.id]);
+      const fill = visited ? Palette.gold : Palette.slate;
       let largest: [number, number][] = [];
       outerRings(f).forEach((ring, i) => {
         const pts: string[] = [];
@@ -228,7 +178,7 @@ export function CountryFillMap({
           if (y > hy) hy = y;
         }
         const area = (hx - lx) * (hy - ly);
-        rawProvinces.push({
+        rawLabels.push({
           key: f.properties.id,
           x: cx / largest.length,
           y: cy / largest.length,
@@ -239,28 +189,11 @@ export function CountryFillMap({
       }
     }
 
-    const rawCities: CityLabel[] = cities.map((c, i) => {
-      const [x, y] = project(c.position[0], c.position[1]);
-      const visited = visitedCityIds.has(c.id);
-      return {
-        key: c.id,
-        x,
-        y,
-        text: cityDisplayKo(c),
-        visited,
-        weight: (visited ? 1e9 : 0) - i,
-      };
-    });
-
-    return { polys, bgPolys, rawProvinces, rawCities };
-  }, [regions, cities, visits, visitedCityIds, background]);
+    return { polys, bgPolys, rawLabels };
+  }, [regions, visits, background]);
 
   // re-cull on settled zoom only (cheap) — projection above doesn't re-run
-  const provinces = useMemo(
-    () => cull(rawProvinces, PROVINCE_FONT, zoomLevel),
-    [rawProvinces, zoomLevel],
-  );
-  const cityLabels = useMemo(() => cull(rawCities, CITY_FONT, zoomLevel), [rawCities, zoomLevel]);
+  const labels = useMemo(() => cull(rawLabels, UNIT_FONT, zoomLevel), [rawLabels, zoomLevel]);
 
   const W = Dimensions.get('window').width - 48;
   const H = W * (VIEW_H / VIEW_W);
@@ -360,29 +293,22 @@ export function CountryFillMap({
     };
   }, [isWeb, scale, savedScale, tx, ty, savedTx, savedTy]);
 
-  // when there's no separate city layer (KR: the 시 ARE the units), region labels
-  // must stay visible when zoomed in — don't fade them out into nothing.
-  const hasCityLayer = cityLabels.length > 0;
   // fontSize is counter-scaled by the LIVE scale (not the settled zoom) so it
   // updates *continuously* as you pinch — otherwise it only re-applies on gesture
   // end and the text visibly snaps the instant you lift your fingers. The ^EXP
   // (LABEL_EXP < 1) lets on-screen text grow gently with zoom so it's readable at
   // max zoom. Set on the group; SVG font-size inherits to the child <SvgText>.
-  const provinceProps = useAnimatedProps(() => ({
-    fontSize: PROVINCE_FONT / Math.pow(scale.value, LABEL_EXP),
-    opacity: hasCityLayer
-      ? interpolate(scale.value, [1.25, 1.7, 3.0, 3.4], [0, 1, 1, 0], Extrapolation.CLAMP)
-      : interpolate(scale.value, [1.25, 1.7], [0, 1], Extrapolation.CLAMP),
-  }));
-  const cityProps = useAnimatedProps(() => ({
-    fontSize: CITY_FONT / Math.pow(scale.value, LABEL_EXP),
-    opacity: interpolate(scale.value, [3.5, 3.9], [0, 1], Extrapolation.CLAMP),
+  // City-area labels are unreadably dense at country zoom → fade in from 1.25x
+  // and stay (they're the only label layer).
+  const labelProps = useAnimatedProps(() => ({
+    fontSize: UNIT_FONT / Math.pow(scale.value, LABEL_EXP),
+    opacity: interpolate(scale.value, [1.25, 1.7], [0, 1], Extrapolation.CLAMP),
   }));
 
   const inner = (
     <Animated.View style={[{ flex: 1, alignItems: 'center', justifyContent: 'center' }, animStyle]}>
       <Svg width={W * renderScale} height={H * renderScale} viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}>
-          {/* backdrop (KR: 도) for full coverage under the fill units */}
+          {/* admin-1 backdrop for full land coverage under the city units */}
           {bgPolys.map((p) => (
             <Polygon key={p.key} points={p.points} fill={p.fill} stroke={Palette.bg} strokeWidth={0.6} />
           ))}
@@ -398,16 +324,8 @@ export function CountryFillMap({
           />
         ))}
 
-          {/* visited city pins — always visible so you can see WHICH city you've
-              collected even when the region is only partly filled */}
-          {cityLabels
-            .filter((l) => l.visited)
-            .map((l) => (
-              <Circle key={`pin-${l.key}`} cx={l.x} cy={l.y} r={1.5} fill={Palette.gold} stroke={Palette.bg} strokeWidth={0.4} />
-            ))}
-
-          <AnimatedG animatedProps={provinceProps}>
-            {provinces.map((l) => (
+          <AnimatedG animatedProps={labelProps}>
+            {labels.map((l) => (
               <SvgText
                 key={l.key}
                 x={l.x}
@@ -420,24 +338,6 @@ export function CountryFillMap({
               </SvgText>
             ))}
           </AnimatedG>
-
-          <AnimatedG animatedProps={cityProps}>
-            {/* state is carried by label color/weight (no markers):
-                visited = bright white bold, unvisited = dim grey */}
-            {cityLabels.map((l) => (
-              <SvgText
-                key={l.key}
-                x={l.x}
-                y={l.y}
-                fontWeight={l.visited ? '700' : '400'}
-                fill={l.visited ? Palette.ink : Palette.muted}
-                fillOpacity={l.visited ? 1 : 0.5}
-                textAnchor="middle"
-                alignmentBaseline="middle">
-                {l.text}
-              </SvgText>
-            ))}
-        </AnimatedG>
       </Svg>
     </Animated.View>
   );

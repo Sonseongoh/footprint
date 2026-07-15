@@ -44,8 +44,8 @@ export async function ensureUserShare(): Promise<string> {
 }
 
 export interface CountryShare {
+  /** visit counts keyed by city-area id (the fill unit) */
   regions: Record<string, number>;
-  visitedCityIds: Set<string>;
   totalVisits: number;
 }
 export interface UserShareData {
@@ -63,22 +63,19 @@ export async function getPublicUserShare(slug: string): Promise<UserShareData | 
     .maybeSingle();
   if (pageErr || !page || !page.is_public) return null;
 
-  const [{ data: visits }, { data: cityVisits }] = await Promise.all([
-    supabase.from('visits').select('region_id, visit_count, country').eq('user_id', page.user_id),
-    supabase.from('visits_city').select('city_id, country').eq('user_id', page.user_id),
-  ]);
+  const { data: visits } = await supabase
+    .from('visits')
+    .select('region_id, visit_count, country')
+    .eq('user_id', page.user_id);
 
   const byCountry: Partial<Record<CountryCode, CountryShare>> = {};
   const ensure = (c: CountryCode): CountryShare =>
-    (byCountry[c] ??= { regions: {}, visitedCityIds: new Set(), totalVisits: 0 });
+    (byCountry[c] ??= { regions: {}, totalVisits: 0 });
 
   for (const v of visits ?? []) {
     const cs = ensure(v.country as CountryCode);
     cs.regions[v.region_id] = v.visit_count;
     cs.totalVisits += v.visit_count;
-  }
-  for (const cv of cityVisits ?? []) {
-    ensure(cv.country as CountryCode).visitedCityIds.add(cv.city_id);
   }
 
   const order: CountryCode[] = ['KR', 'JP', 'TH'];
@@ -112,10 +109,8 @@ export async function ensureSharePage(country: CountryCode): Promise<string> {
 
 export interface PublicShareData {
   country: CountryCode;
-  /** regionIds with at least one visit, with counts */
+  /** city-area ids with at least one visit, with counts */
   regions: Record<string, number>;
-  /** ids of visited cities (for city-level fill + headline count) */
-  visitedCityIds: Set<string>;
   totalVisits: number;
 }
 
@@ -128,18 +123,11 @@ export async function getPublicShare(slug: string): Promise<PublicShareData | nu
     .maybeSingle();
   if (pageErr || !page || !page.is_public) return null;
 
-  const [{ data: visits, error: vErr }, { data: cityVisits }] = await Promise.all([
-    supabase
-      .from('visits')
-      .select('region_id, visit_count')
-      .eq('user_id', page.user_id)
-      .eq('country', page.country),
-    supabase
-      .from('visits_city')
-      .select('city_id')
-      .eq('user_id', page.user_id)
-      .eq('country', page.country),
-  ]);
+  const { data: visits, error: vErr } = await supabase
+    .from('visits')
+    .select('region_id, visit_count')
+    .eq('user_id', page.user_id)
+    .eq('country', page.country);
   if (vErr) return null;
 
   const regions: Record<string, number> = {};
@@ -148,6 +136,5 @@ export async function getPublicShare(slug: string): Promise<PublicShareData | nu
     regions[v.region_id] = v.visit_count;
     total += v.visit_count;
   }
-  const visitedCityIds = new Set<string>((cityVisits ?? []).map((c) => c.city_id));
-  return { country: page.country as CountryCode, regions, visitedCityIds, totalVisits: total };
+  return { country: page.country as CountryCode, regions, totalVisits: total };
 }

@@ -29,26 +29,6 @@ export async function applyLocalCheckin(
   );
 }
 
-/** Record a checked-in city (drives depth-proportional fill + visited dots). */
-export async function applyLocalCityVisit(
-  cityId: string,
-  country: CountryCode,
-  whenIso: string,
-): Promise<void> {
-  const db = await getDb();
-  await db.runAsync(
-    `INSERT INTO visits_city_local (city_id, country, first_visited_at, last_visited_at, visit_count)
-     VALUES (?, ?, ?, ?, 1)
-     ON CONFLICT(city_id) DO UPDATE SET
-       visit_count = visit_count + 1,
-       last_visited_at = MAX(last_visited_at, excluded.last_visited_at)`,
-    cityId,
-    country,
-    whenIso,
-    whenIso,
-  );
-}
-
 /** Wipe the local fill projection — used when switching accounts so one user's
  *  map doesn't bleed into another's on the same device. */
 export async function clearLocalVisits(): Promise<void> {
@@ -61,38 +41,18 @@ export async function clearLocalVisits(): Promise<void> {
  * Rebuild the local fill projection from the server for the signed-in user, so
  * after an account switch the globe/map/stats immediately show that account's
  * existing visits (the records tab reads the server directly, but the fill map
- * is local-first). Region fills come from the server `visits` aggregate; city
- * dots are re-aggregated from `visit_events`. No-op when signed out / offline.
+ * is local-first). Fills come from the server `visits` aggregate — its
+ * region_id IS the city-area id. No-op when signed out / offline.
  */
 export async function hydrateLocalFromServer(): Promise<void> {
   const { data: session } = await supabase.auth.getSession();
   const userId = session.session?.user?.id;
   if (!userId) return;
 
-  const [{ data: visits }, { data: events }] = await Promise.all([
-    supabase
-      .from('visits')
-      .select('region_id, country, first_visited_at, last_visited_at, visit_count')
-      .eq('user_id', userId),
-    supabase
-      .from('visit_events')
-      .select('city_id, country, created_at')
-      .eq('user_id', userId)
-      .not('city_id', 'is', null),
-  ]);
-
-  // aggregate city events → one row per city (count + first/last seen)
-  const cities = new Map<string, { country: string; first: string; last: string; count: number }>();
-  for (const e of events ?? []) {
-    if (!e.city_id) continue;
-    const cur = cities.get(e.city_id);
-    if (!cur) cities.set(e.city_id, { country: e.country, first: e.created_at, last: e.created_at, count: 1 });
-    else {
-      cur.count += 1;
-      if (e.created_at < cur.first) cur.first = e.created_at;
-      if (e.created_at > cur.last) cur.last = e.created_at;
-    }
-  }
+  const { data: visits } = await supabase
+    .from('visits')
+    .select('region_id, country, first_visited_at, last_visited_at, visit_count')
+    .eq('user_id', userId);
 
   const db = await getDb();
   await db.withTransactionAsync(async () => {
@@ -107,17 +67,6 @@ export async function hydrateLocalFromServer(): Promise<void> {
         v.first_visited_at,
         v.last_visited_at,
         v.visit_count,
-      );
-    }
-    for (const [cityId, c] of cities) {
-      await db.runAsync(
-        `INSERT OR REPLACE INTO visits_city_local (city_id, country, first_visited_at, last_visited_at, visit_count)
-         VALUES (?, ?, ?, ?, ?)`,
-        cityId,
-        c.country,
-        c.first,
-        c.last,
-        c.count,
       );
     }
   });
@@ -137,16 +86,6 @@ export async function getVisitedCountries(): Promise<Set<CountryCode>> {
     'SELECT DISTINCT country FROM visits_local',
   );
   return new Set(rows.map((r) => r.country));
-}
-
-/** Set of visited city ids for a country. */
-export async function getVisitedCityIds(country: CountryCode): Promise<Set<string>> {
-  const db = await getDb();
-  const rows = await db.getAllAsync<{ city_id: string }>(
-    'SELECT city_id FROM visits_city_local WHERE country = ?',
-    country,
-  );
-  return new Set(rows.map((r) => r.city_id));
 }
 
 /** Local visited regions for a country, keyed by regionId (for the fill map). */

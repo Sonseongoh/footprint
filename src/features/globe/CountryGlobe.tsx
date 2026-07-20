@@ -112,8 +112,10 @@ const CHIP_ANCHORS: Record<CountryCode, [number, number]> = {
   JP: [138.7, 36.8],
   TH: [101.0, 15.5],
 };
-const CHIP_FLAGS: Record<CountryCode, string> = { KR: '🇰🇷', JP: '🇯🇵', TH: '🇹🇭' };
+// country code drawn as plain styled text — flag emoji fell back to
+// mismatched-size regional-indicator glyphs on platforms without flag fonts
 const CHIP_FONT = 7.5;
+const CHIP_CODE_FONT = 6;
 const CHIP_H = 14;
 /** per-country pill offset [dx, lift] — KR/JP sit close, so fan them apart */
 const CHIP_OFFSETS: Record<CountryCode, [number, number]> = {
@@ -250,8 +252,8 @@ export function CountryGlobe({ onSelectCountry, visitedCountries = EMPTY_VISITED
       const xy = projection(anchor);
       if (!xy) continue;
       const name = COUNTRIES[cc].nameLocal;
-      // flag glyph ≈ 9 + gap 3 + hangul ≈ 7.6/char + padding
-      const w = 9 + 3 + name.length * 7.6 + 12;
+      // code (2 caps ≈ 4/char) + gap + hangul ≈ 7.6/char + padding
+      const w = 8 + 3 + name.length * 7.6 + 12;
       const [dx, lift] = CHIP_OFFSETS[cc];
       out.push({ cc, x: xy[0], y: xy[1], w, dx, lift, visited: visitedCountries.has(cc) });
     }
@@ -470,16 +472,38 @@ export function CountryGlobe({ onSelectCountry, visitedCountries = EMPTY_VISITED
               strokeOpacity={c.visited ? 1 : 0.55}
               strokeWidth={0.6}
             />
-            <SvgText
-              x={c.x + c.dx}
-              y={c.y - c.lift + CHIP_H / 2 + 0.5}
-              fontSize={CHIP_FONT}
-              fontWeight="700"
-              fill={c.visited ? Palette.bg : Palette.ink}
-              textAnchor="middle"
-              alignmentBaseline="middle">
-              {`${CHIP_FLAGS[c.cc]} ${COUNTRIES[c.cc].nameLocal}`}
-            </SvgText>
+            {/* two text runs with controlled sizes (an emoji flag rendered as
+                undersized fallback glyphs on flag-less platforms) */}
+            {(() => {
+              const name = COUNTRIES[c.cc].nameLocal;
+              const contentW = 8 + 3 + name.length * 7.6;
+              const left = c.x + c.dx - contentW / 2;
+              const midY = c.y - c.lift + CHIP_H / 2 + 0.5;
+              return (
+                <>
+                  <SvgText
+                    x={left + 4}
+                    y={midY}
+                    fontSize={CHIP_CODE_FONT}
+                    fontWeight="700"
+                    fill={c.visited ? Palette.bg : Palette.gold}
+                    textAnchor="middle"
+                    alignmentBaseline="middle">
+                    {c.cc}
+                  </SvgText>
+                  <SvgText
+                    x={left + 8 + 3 + (name.length * 7.6) / 2}
+                    y={midY}
+                    fontSize={CHIP_FONT}
+                    fontWeight="700"
+                    fill={c.visited ? Palette.bg : Palette.ink}
+                    textAnchor="middle"
+                    alignmentBaseline="middle">
+                    {name}
+                  </SvgText>
+                </>
+              );
+            })()}
           </G>
         ))}
 

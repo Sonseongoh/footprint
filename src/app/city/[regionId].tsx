@@ -93,43 +93,44 @@ function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose:
   const ty = useSharedValue(0);
   const savedTx = useSharedValue(0);
   const savedTy = useSharedValue(0);
+  // Slides live at ABSOLUTE positions (photo i at i·W) on one track; the track
+  // is shifted by -swapBase so photo `index` sits centered when tx = 0. The
+  // rebase after a slide (swapBase += dir·W, tx → 0) happens inside the
+  // animation-finish WORKLET — one UI-thread frame, net translation unchanged —
+  // so the swap can't flash the previous photo while React commits the index.
+  const swapBase = useSharedValue(0);
 
-  const resetTransform = useCallback(() => {
-    scale.value = 1;
-    savedScale.value = 1;
-    tx.value = 0;
-    ty.value = 0;
-    savedTx.value = 0;
-    savedTy.value = 0;
-  }, [scale, savedScale, tx, ty, savedTx, savedTy]);
-
-  // opening a new set → jump to its start photo, overlay back on. (index steps
-  // do NOT reset here — the slide transition manages the transform itself)
+  // opening a new set → jump to its start photo, overlay back on
   useEffect(() => {
     if (photos) {
       setIndex(photos.index);
       setChromeVisible(true);
-      resetTransform();
-    }
-  }, [photos, resetTransform]);
-
-  /** Commit the photo change the instant the track lands on the neighbor —
-   *  the neighbor is already rendered at ±screen-width, so index+1 at tx=0
-   *  shows the exact same pixels the animation ended on (no blank frame). */
-  const snapSwap = useCallback(
-    (dir: number) => {
-      setIndex((i) => Math.min(Math.max(i + dir, 0), Math.max(urls.length - 1, 0)));
       scale.value = 1;
       savedScale.value = 1;
       tx.value = 0;
       ty.value = 0;
       savedTx.value = 0;
       savedTy.value = 0;
+      swapBase.value = photos.index * VIEWER_W;
+    }
+  }, [photos, scale, savedScale, tx, ty, savedTx, savedTy, swapBase]);
+
+  const commitIndex = useCallback(
+    (dir: number) => {
+      setIndex((i) => Math.min(Math.max(i + dir, 0), Math.max(urls.length - 1, 0)));
     },
-    [urls.length, scale, savedScale, tx, ty, savedTx, savedTy],
+    [urls.length],
   );
 
-  /** Slide the track one photo over (used by swipe release and the chevrons). */
+  /** UI-thread tail of a slide: rebase the track, then let React catch up. */
+  const finishSlide = (dir: number) => {
+    'worklet';
+    swapBase.value = swapBase.value + dir * VIEWER_W;
+    tx.value = 0;
+    scheduleOnRN(commitIndex, dir);
+  };
+
+  /** Slide the track one photo over (chevrons; swipes run the same inline). */
   const step = useCallback(
     (dir: number) => {
       const target = Math.min(Math.max(index + dir, 0), Math.max(urls.length - 1, 0));
@@ -138,11 +139,12 @@ function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose:
         -dir * VIEWER_W,
         { duration: 200, easing: Easing.out(Easing.cubic) },
         (finished) => {
-          if (finished) scheduleOnRN(snapSwap, dir);
+          if (finished) finishSlide(dir);
         },
       );
     },
-    [index, urls.length, tx, snapSwap],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [index, urls.length, tx],
   );
   const toggleChrome = useCallback(() => setChromeVisible((v) => !v), []);
 
@@ -156,7 +158,8 @@ function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose:
   const pan = Gesture.Pan()
     .onUpdate((e) => {
       tx.value = savedTx.value + e.translationX;
-      ty.value = savedTy.value + e.translationY;
+      // not zoomed = carousel mode → horizontal only (vertical drift felt broken)
+      ty.value = scale.value <= 1.01 ? 0 : savedTy.value + e.translationY;
     })
     .onEnd((e) => {
       // not zoomed → a horizontal drag is a photo swipe, not a pan. A fast
@@ -167,11 +170,17 @@ function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose:
         const dir = (e.translationX || e.velocityX) < 0 ? 1 : -1;
         const target = index + dir;
         if (wantsStep && target >= 0 && target < urls.length) {
-          scheduleOnRN(step, dir);
+          tx.value = withTiming(
+            -dir * VIEWER_W,
+            { duration: 200, easing: Easing.out(Easing.cubic) },
+            (finished) => {
+              if (finished) finishSlide(dir);
+            },
+          );
         } else {
           tx.value = withSpring(0, { damping: 18, stiffness: 200 });
-          ty.value = withSpring(0, { damping: 18, stiffness: 200 });
         }
+        ty.value = 0;
         savedTx.value = 0;
         savedTy.value = 0;
         return;
@@ -221,15 +230,14 @@ function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose:
   const gesture = Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, singleTap));
 
   const imgStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }],
+    transform: [
+      { translateX: tx.value - swapBase.value },
+      { translateY: ty.value },
+      { scale: scale.value },
+    ],
   }));
 
   const multi = urls.length > 1;
-  // neighbors ride on the same track at ±screen-width: they follow the finger
-  // in from the side during a swipe, so no black frame between photos (they
-  // also preload). While zoomed the clamp keeps them off screen.
-  const prevUrl = urls[index - 1] ?? null;
-  const nextUrl = urls[index + 1] ?? null;
   return (
     <Modal visible={!!photos} transparent animationType="fade" onRequestClose={onClose}>
       <GestureHandlerRootView style={styles.viewerRoot}>
@@ -237,17 +245,21 @@ function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose:
           <Animated.View style={styles.viewerBody}>
             {url && (
               <Animated.View style={[styles.viewerImageWrap, imgStyle]}>
-                {prevUrl && (
-                  <View style={[styles.viewerSlide, { transform: [{ translateX: -VIEWER_W }] }]}>
-                    <Image source={{ uri: prevUrl }} style={styles.viewerImage} contentFit="contain" />
-                  </View>
-                )}
-                <Image source={{ uri: url }} style={styles.viewerImage} contentFit="contain" />
-                {nextUrl && (
-                  <View style={[styles.viewerSlide, { transform: [{ translateX: VIEWER_W }] }]}>
-                    <Image source={{ uri: nextUrl }} style={styles.viewerImage} contentFit="contain" />
-                  </View>
-                )}
+                {/* photo i parked at i·W on the track — absolute positions stay
+                    meaningful across index commits, and keyed by i the center
+                    slide's element survives the swap (no remount flash).
+                    Neighbors follow the finger in, so no black frame either. */}
+                {[index - 1, index, index + 1].map((i) => {
+                  const u = urls[i];
+                  if (!u) return null;
+                  return (
+                    <View
+                      key={i}
+                      style={[styles.viewerSlide, { transform: [{ translateX: i * VIEWER_W }] }]}>
+                      <Image source={{ uri: u }} style={styles.viewerImage} contentFit="contain" />
+                    </View>
+                  );
+                })}
               </Animated.View>
             )}
           </Animated.View>

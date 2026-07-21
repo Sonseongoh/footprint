@@ -24,7 +24,7 @@
         "android.permission.ACCESS_FINE_LOCATION"
       ],
       "blockedPermissions": ["android.permission.RECORD_AUDIO"],
-      "package": "com.nobleser.footprint"
+      "package": "com.footprintmap.app"
     },
     "web": {
       "output": "single",

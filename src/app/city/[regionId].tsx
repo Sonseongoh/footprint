@@ -113,35 +113,36 @@ function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose:
     }
   }, [photos, resetTransform]);
 
-  /** Swap to the next/prev photo and slide it in from the side it came from. */
-  const slideIn = useCallback(
+  /** Commit the photo change the instant the track lands on the neighbor —
+   *  the neighbor is already rendered at ±screen-width, so index+1 at tx=0
+   *  shows the exact same pixels the animation ended on (no blank frame). */
+  const snapSwap = useCallback(
     (dir: number) => {
       setIndex((i) => Math.min(Math.max(i + dir, 0), Math.max(urls.length - 1, 0)));
       scale.value = 1;
       savedScale.value = 1;
+      tx.value = 0;
       ty.value = 0;
       savedTx.value = 0;
       savedTy.value = 0;
-      tx.value = dir * VIEWER_W;
-      tx.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
     },
     [urls.length, scale, savedScale, tx, ty, savedTx, savedTy],
   );
 
-  /** Chevron/step entry: slide the current photo out, then bring in the next. */
+  /** Slide the track one photo over (used by swipe release and the chevrons). */
   const step = useCallback(
     (dir: number) => {
       const target = Math.min(Math.max(index + dir, 0), Math.max(urls.length - 1, 0));
       if (target === index) return;
       tx.value = withTiming(
         -dir * VIEWER_W,
-        { duration: 160, easing: Easing.out(Easing.quad) },
+        { duration: 200, easing: Easing.out(Easing.cubic) },
         (finished) => {
-          if (finished) scheduleOnRN(slideIn, dir);
+          if (finished) scheduleOnRN(snapSwap, dir);
         },
       );
     },
-    [index, urls.length, tx, slideIn],
+    [index, urls.length, tx, snapSwap],
   );
   const toggleChrome = useCallback(() => setChromeVisible((v) => !v), []);
 
@@ -224,6 +225,11 @@ function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose:
   }));
 
   const multi = urls.length > 1;
+  // neighbors ride on the same track at ±screen-width: they follow the finger
+  // in from the side during a swipe, so no black frame between photos (they
+  // also preload). While zoomed the clamp keeps them off screen.
+  const prevUrl = urls[index - 1] ?? null;
+  const nextUrl = urls[index + 1] ?? null;
   return (
     <Modal visible={!!photos} transparent animationType="fade" onRequestClose={onClose}>
       <GestureHandlerRootView style={styles.viewerRoot}>
@@ -231,7 +237,17 @@ function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose:
           <Animated.View style={styles.viewerBody}>
             {url && (
               <Animated.View style={[styles.viewerImageWrap, imgStyle]}>
+                {prevUrl && (
+                  <View style={[styles.viewerSlide, { transform: [{ translateX: -VIEWER_W }] }]}>
+                    <Image source={{ uri: prevUrl }} style={styles.viewerImage} contentFit="contain" />
+                  </View>
+                )}
                 <Image source={{ uri: url }} style={styles.viewerImage} contentFit="contain" />
+                {nextUrl && (
+                  <View style={[styles.viewerSlide, { transform: [{ translateX: VIEWER_W }] }]}>
+                    <Image source={{ uri: nextUrl }} style={styles.viewerImage} contentFit="contain" />
+                  </View>
+                )}
               </Animated.View>
             )}
           </Animated.View>
@@ -1167,6 +1183,8 @@ const styles = StyleSheet.create({
   viewerBody: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   viewerImageWrap: { width: '100%', height: '100%' },
   viewerImage: { width: '100%', height: '100%' },
+  // neighbor photos parked one screen-width to each side of the track
+  viewerSlide: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   viewerClose: {
     position: 'absolute',
     top: 48,

@@ -14,13 +14,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions, Platform, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
-  Easing,
   Extrapolation,
   interpolate,
   useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
-  withTiming,
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import Svg, { G, Polygon, Text as SvgText } from 'react-native-svg';
@@ -31,28 +29,6 @@ import type { RegionFeature } from '@/lib/geo';
 import type { Visit } from '@/types/domain';
 
 const AnimatedG = Animated.createAnimatedComponent(G);
-const AnimatedPolygon = Animated.createAnimatedComponent(Polygon);
-
-/** A visit newer than this still gets its gold fill-in moment on the map. */
-const FRESH_VISIT_MS = 5 * 60_000;
-
-/** Gold overlay that fades in over the slate tile — the "채워지는 순간". */
-function FreshGoldOverlay({ points }: { points: string }) {
-  const progress = useSharedValue(0);
-  useEffect(() => {
-    progress.value = withTiming(1, { duration: 450, easing: Easing.out(Easing.cubic) });
-  }, [progress]);
-  const animatedProps = useAnimatedProps(() => ({ fillOpacity: progress.value }));
-  return (
-    <AnimatedPolygon
-      points={points}
-      fill={Palette.gold}
-      strokeWidth={0}
-      animatedProps={animatedProps}
-      pointerEvents="none"
-    />
-  );
-}
 
 const VIEW_W = 320;
 const VIEW_H = 460;
@@ -87,8 +63,6 @@ interface Poly {
   fill: string;
   /** the fill unit's region id (fill polys only; backdrop polys omit it) */
   regionId?: string;
-  /** freshly collected this session — drawn slate with an animated gold overlay */
-  fresh?: boolean;
 }
 interface UnitLabel {
   key: string;
@@ -140,11 +114,6 @@ export function CountryFillMap({
   // settled zoom (updated on gesture end) — re-culls labels so more reveal as you
   // zoom in. Kept as state (not the animated value) so the cull memo can read it.
   const [zoomLevel, setZoomLevel] = useState(START_SCALE);
-
-  // cities flagged for the gold fill-in moment. Once flagged they STAY flagged
-  // for this component's lifetime: the overlay animates on mount and then sits
-  // at full gold, so later re-renders don't flash back to slate or re-pop.
-  const freshIds = useRef(new Set<string>()).current;
 
   const { polys, bgPolys, rawLabels, rawRegionLabels } = useMemo(() => {
     const empty = {
@@ -225,17 +194,9 @@ export function CountryFillMap({
 
     const polys: Poly[] = [];
     const rawLabels: UnitLabel[] = [];
-    const now = Date.now();
     for (const f of regions) {
-      const visit = visits[f.properties.id];
-      const visited = Boolean(visit);
-      // just collected → base tile stays slate; the gold arrives as an overlay
-      const fresh =
-        visited &&
-        (freshIds.has(f.properties.id) ||
-          now - new Date(visit.lastVisitedAt).getTime() < FRESH_VISIT_MS);
-      if (fresh) freshIds.add(f.properties.id);
-      const fill = visited && !fresh ? Palette.gold : Palette.slate;
+      const visited = Boolean(visits[f.properties.id]);
+      const fill = visited ? Palette.gold : Palette.slate;
       let largest: [number, number][] = [];
       outerRings(f).forEach((ring, i) => {
         const pts: string[] = [];
@@ -246,7 +207,7 @@ export function CountryFillMap({
           pts.push(`${xy[0].toFixed(1)},${xy[1].toFixed(1)}`);
         }
         if (pts.length > 2) {
-          polys.push({ key: `${f.properties.id}-${i}`, points: pts.join(' '), fill, regionId: f.properties.id, fresh });
+          polys.push({ key: `${f.properties.id}-${i}`, points: pts.join(' '), fill, regionId: f.properties.id });
           if (proj.length > largest.length) largest = proj;
         }
       });
@@ -426,13 +387,6 @@ export function CountryFillMap({
             onPress={onSelectRegion && p.regionId ? () => onSelectRegion(p.regionId!) : undefined}
           />
         ))}
-
-          {/* 채워지는 순간 — freshly collected cities fade from slate to gold */}
-          {polys
-            .filter((p) => p.fresh)
-            .map((p) => (
-              <FreshGoldOverlay key={`fresh-${p.key}`} points={p.points} />
-            ))}
 
           <AnimatedG animatedProps={regionLabelProps}>
             {regionLabels.map((l) => (

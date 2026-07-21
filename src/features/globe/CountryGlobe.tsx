@@ -276,6 +276,7 @@ export function CountryGlobe({ onSelectCountry, visitedCountries = EMPTY_VISITED
     () => () => {
       stopSpin();
       if (dragFrame.current != null) cancelAnimationFrame(dragFrame.current);
+      if (pinchFrame.current != null) cancelAnimationFrame(pinchFrame.current);
     },
     [],
   );
@@ -351,8 +352,20 @@ export function CountryGlobe({ onSelectCountry, visitedCountries = EMPTY_VISITED
     });
 
   // ── pinch to zoom ─────────────────────────────────────────────────────────
+  // Same frame-coalescing as drag: pinch events can outpace frames, and every
+  // uncoalesced setZoom re-projects the whole world.
+  const pendingPinch = useRef<number | null>(null);
+  const pinchFrame = useRef<number | null>(null);
+
   function applyPinch(s: number) {
-    setZoom(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pinchStart * s)));
+    pendingPinch.current = s;
+    if (pinchFrame.current != null) return;
+    pinchFrame.current = requestAnimationFrame(() => {
+      pinchFrame.current = null;
+      const v = pendingPinch.current;
+      if (v == null) return;
+      setZoom(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pinchStart * v)));
+    });
   }
   function commitPinch() {
     setZoom((z) => {

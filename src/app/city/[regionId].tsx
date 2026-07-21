@@ -23,7 +23,7 @@ import {
   View,
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -144,12 +144,20 @@ function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose:
   const doubleTap = Gesture.Tap()
     .numberOfTaps(2)
     .onEnd(() => {
-      scale.value = 1;
-      savedScale.value = 1;
-      tx.value = 0;
-      ty.value = 0;
-      savedTx.value = 0;
-      savedTy.value = 0;
+      // zoomed → animated reset; at 1x → zoom in (the standard photo-viewer
+      // double-tap pair). Snapping values directly teleported the image.
+      const cfg = { duration: 220, easing: Easing.out(Easing.cubic) };
+      if (scale.value > 1.01) {
+        scale.value = withTiming(1, cfg);
+        tx.value = withTiming(0, cfg);
+        ty.value = withTiming(0, cfg);
+        savedScale.value = 1;
+        savedTx.value = 0;
+        savedTy.value = 0;
+      } else {
+        scale.value = withTiming(2.5, cfg);
+        savedScale.value = 2.5;
+      }
     });
   // single tap toggles the overlay. Priority: doubleTap > pan > singleTap —
   // pan must outrank the tap or a quick swipe registers as a tap (toggling the

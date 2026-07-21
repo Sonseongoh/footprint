@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   Modal,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -23,7 +24,7 @@ import {
   View,
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -68,6 +69,11 @@ interface ViewerState {
   urls: string[];
   index: number;
 }
+
+// pan-bounds basis for the zoomed viewer (contain-fit image inside the window;
+// the true content box is ≤ this, so the clamp is slightly permissive — fine)
+const VIEWER_W = Dimensions.get('window').width;
+const VIEWER_H = Dimensions.get('window').height;
 
 /**
  * Full-screen photo viewer. Pinch-to-zoom + pan; double-tap resets; ✕ closes.
@@ -129,17 +135,29 @@ function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose:
       ty.value = savedTy.value + e.translationY;
     })
     .onEnd((e) => {
-      // not zoomed → a horizontal drag is a photo swipe, not a pan
-      if (scale.value <= 1.01 && Math.abs(e.translationX) > 60) {
-        scheduleOnRN(step, e.translationX < 0 ? 1 : -1);
+      // not zoomed → a horizontal drag is a photo swipe, not a pan. A fast
+      // flick counts even when short (velocity, not just distance).
+      if (scale.value <= 1.01) {
+        if (Math.abs(e.translationX) > 60 || Math.abs(e.velocityX) > 800) {
+          scheduleOnRN(step, (e.translationX || e.velocityX) < 0 ? 1 : -1);
+        }
         tx.value = 0;
         ty.value = 0;
         savedTx.value = 0;
         savedTy.value = 0;
         return;
       }
-      savedTx.value = tx.value;
-      savedTy.value = ty.value;
+      // zoomed → keep the photo on screen: spring back inside the pannable
+      // bounds of a centered contain-fit image ((scale-1)·screen/2 per axis).
+      const spring = { damping: 18, stiffness: 200 };
+      const maxX = ((scale.value - 1) * VIEWER_W) / 2;
+      const maxY = ((scale.value - 1) * VIEWER_H) / 2;
+      const cx = Math.min(Math.max(tx.value, -maxX), maxX);
+      const cy = Math.min(Math.max(ty.value, -maxY), maxY);
+      if (cx !== tx.value) tx.value = withSpring(cx, spring);
+      if (cy !== ty.value) ty.value = withSpring(cy, spring);
+      savedTx.value = cx;
+      savedTy.value = cy;
     });
   const doubleTap = Gesture.Tap()
     .numberOfTaps(2)
@@ -159,17 +177,19 @@ function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose:
         savedScale.value = 2.5;
       }
     });
-  // single tap toggles the overlay. Priority: doubleTap > pan > singleTap —
-  // pan must outrank the tap or a quick swipe registers as a tap (toggling the
-  // overlay instead of changing photos); the tap only wins when the finger
-  // doesn't move.
+  // single tap toggles the overlay; only fires when the finger doesn't move.
   const singleTap = Gesture.Tap()
     .numberOfTaps(1)
     .maxDistance(10)
     .onEnd((_e, success) => {
       if (success) scheduleOnRN(toggleChrome);
     });
-  const gesture = Gesture.Simultaneous(Gesture.Exclusive(doubleTap, pan, singleTap), pinch);
+  // Pan must NOT sit inside the tap Exclusive chain: there it could only
+  // activate after doubleTap failed, which swallowed zoomed-in drags almost
+  // entirely (they'd move only when the fail timing happened to line up).
+  // Movement (pinch+pan) runs simultaneously; taps arbitrate among themselves
+  // and fail on any real movement, so a swipe still never reads as a tap.
+  const gesture = Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, singleTap));
 
   const imgStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }],

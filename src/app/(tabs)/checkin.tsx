@@ -23,6 +23,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { Easing, Keyframe } from 'react-native-reanimated';
 
 import { Palette, Space } from '@/constants/footprint-theme';
 import { availableCountries, loadFillUnits, resolveCheckin, type ResolvedCheckin } from '@/data';
@@ -60,6 +61,20 @@ const TEST_POINTS: { label: string; pos: Position }[] = __DEV__
 const SUPPORTED_LABEL = availableCountries()
   .map((c) => COUNTRIES[c].nameLocal)
   .join(' · ');
+
+// 골드 팝 — the reward beat of the collection loop (approved design: 새 구역을
+// 채우면 골드 "팝"). A slight overshoot sells "collected!"; the badge pops a
+// touch harder, a beat after the card. Rare moment, so the delight is earned.
+const donePopCard = new Keyframe({
+  0: { opacity: 0, transform: [{ scale: 0.92 }] },
+  60: { opacity: 1, transform: [{ scale: 1.03 }], easing: Easing.out(Easing.cubic) },
+  100: { opacity: 1, transform: [{ scale: 1 }], easing: Easing.inOut(Easing.quad) },
+});
+const donePopBadge = new Keyframe({
+  0: { opacity: 0, transform: [{ scale: 0.6 }] },
+  65: { opacity: 1, transform: [{ scale: 1.15 }], easing: Easing.out(Easing.cubic) },
+  100: { opacity: 1, transform: [{ scale: 1 }], easing: Easing.inOut(Easing.quad) },
+});
 
 export default function CheckinScreen() {
   const router = useRouter();
@@ -359,8 +374,10 @@ export default function CheckinScreen() {
           )}
 
           {phase === 'done' && (
-            <View style={styles.card}>
-              <Text style={styles.okBadge}>체크인 완료</Text>
+            <Animated.View entering={donePopCard.duration(420)} style={styles.card}>
+              <Animated.View entering={donePopBadge.duration(520).delay(120)}>
+                <Text style={styles.okBadge}>체크인 완료</Text>
+              </Animated.View>
               <Text style={styles.cardBody}>
                 지도에 채워졌어요. 가본 사람으로서 이 도시 추천을 남겨보세요.
               </Text>
@@ -376,7 +393,7 @@ export default function CheckinScreen() {
                   <Text style={styles.shareCtaText}>이 도시 여행 공유하기 →</Text>
                 </Pressable>
               )}
-            </View>
+            </Animated.View>
           )}
         </ScrollView>
 

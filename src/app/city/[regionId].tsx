@@ -103,22 +103,45 @@ function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose:
     savedTy.value = 0;
   }, [scale, savedScale, tx, ty, savedTx, savedTy]);
 
-  // opening a new set → jump to its start photo, overlay back on
+  // opening a new set → jump to its start photo, overlay back on. (index steps
+  // do NOT reset here — the slide transition manages the transform itself)
   useEffect(() => {
     if (photos) {
       setIndex(photos.index);
       setChromeVisible(true);
+      resetTransform();
     }
-  }, [photos]);
-  useEffect(() => {
-    resetTransform();
-  }, [photos, index, resetTransform]);
+  }, [photos, resetTransform]);
 
-  const step = useCallback(
+  /** Swap to the next/prev photo and slide it in from the side it came from. */
+  const slideIn = useCallback(
     (dir: number) => {
       setIndex((i) => Math.min(Math.max(i + dir, 0), Math.max(urls.length - 1, 0)));
+      scale.value = 1;
+      savedScale.value = 1;
+      ty.value = 0;
+      savedTx.value = 0;
+      savedTy.value = 0;
+      tx.value = dir * VIEWER_W;
+      tx.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
     },
-    [urls.length],
+    [urls.length, scale, savedScale, tx, ty, savedTx, savedTy],
+  );
+
+  /** Chevron/step entry: slide the current photo out, then bring in the next. */
+  const step = useCallback(
+    (dir: number) => {
+      const target = Math.min(Math.max(index + dir, 0), Math.max(urls.length - 1, 0));
+      if (target === index) return;
+      tx.value = withTiming(
+        -dir * VIEWER_W,
+        { duration: 160, easing: Easing.out(Easing.quad) },
+        (finished) => {
+          if (finished) scheduleOnRN(slideIn, dir);
+        },
+      );
+    },
+    [index, urls.length, tx, slideIn],
   );
   const toggleChrome = useCallback(() => setChromeVisible((v) => !v), []);
 
@@ -136,13 +159,18 @@ function PhotoViewer({ photos, onClose }: { photos: ViewerState | null; onClose:
     })
     .onEnd((e) => {
       // not zoomed → a horizontal drag is a photo swipe, not a pan. A fast
-      // flick counts even when short (velocity, not just distance).
+      // flick counts even when short (velocity, not just distance). The slide
+      // continues from the finger's offset; at the ends it springs back.
       if (scale.value <= 1.01) {
-        if (Math.abs(e.translationX) > 60 || Math.abs(e.velocityX) > 800) {
-          scheduleOnRN(step, (e.translationX || e.velocityX) < 0 ? 1 : -1);
+        const wantsStep = Math.abs(e.translationX) > 60 || Math.abs(e.velocityX) > 800;
+        const dir = (e.translationX || e.velocityX) < 0 ? 1 : -1;
+        const target = index + dir;
+        if (wantsStep && target >= 0 && target < urls.length) {
+          scheduleOnRN(step, dir);
+        } else {
+          tx.value = withSpring(0, { damping: 18, stiffness: 200 });
+          ty.value = withSpring(0, { damping: 18, stiffness: 200 });
         }
-        tx.value = 0;
-        ty.value = 0;
         savedTx.value = 0;
         savedTy.value = 0;
         return;

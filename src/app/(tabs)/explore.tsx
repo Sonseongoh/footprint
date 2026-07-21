@@ -74,7 +74,12 @@ export default function MapScreen() {
               </Text>
               <Text style={styles.statLabel}>채운 도시</Text>
             </View>
-            <Pressable style={styles.shareBtn} onPress={handleShare}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.shareBtn,
+                pressed && { transform: [{ scale: 0.97 }], opacity: 0.9 },
+              ]}
+              onPress={handleShare}>
               <Text style={styles.shareBtnText}>공유</Text>
             </Pressable>
           </View>

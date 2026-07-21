@@ -366,7 +366,7 @@ export default function CheckinScreen() {
               </Text>
               {result?.ok && result.country && result.regionId && (
                 <Pressable
-                  style={styles.shareCta}
+                  style={({ pressed }) => [styles.shareCta, pressed && styles.pressedCta]}
                   onPress={() =>
                     router.push({
                       pathname: '/city/[regionId]',
@@ -382,27 +382,37 @@ export default function CheckinScreen() {
 
         <View style={styles.actions}>
           {phase === 'idle' && (
-            <Pressable style={styles.primary} onPress={handleCheckin}>
+            <Pressable
+              style={({ pressed }) => [styles.primary, pressed && styles.pressedCta]}
+              onPress={handleCheckin}>
               <Text style={styles.primaryText}>
                 {isGuest ? '로그인하고 체크인하기' : '＋ 지금 여기 체크인'}
               </Text>
             </Pressable>
           )}
           {phase === 'locating' && (
-            <Pressable style={styles.cancelBtn} onPress={cancelLocating}>
+            <Pressable
+              style={({ pressed }) => [styles.cancelBtn, pressed && styles.pressedCta]}
+              onPress={cancelLocating}>
               <Text style={styles.cancelBtnText}>취소</Text>
             </Pressable>
           )}
           {phase === 'result' && result?.ok && (
             <Pressable
-              style={[styles.primary, saving && { opacity: 0.6 }]}
+              style={({ pressed }) => [
+                styles.primary,
+                pressed && styles.pressedCta,
+                saving && { opacity: 0.6 },
+              ]}
               disabled={saving}
               onPress={handleRecord}>
               <Text style={styles.primaryText}>{saving ? '저장 중…' : '이 도시 기록하기'}</Text>
             </Pressable>
           )}
           {(phase === 'result' || phase === 'denied' || phase === 'done') && (
-            <Pressable style={styles.secondary} onPress={reset}>
+            <Pressable
+              style={({ pressed }) => [styles.secondary, pressed && styles.pressedCta]}
+              onPress={reset}>
               <Text style={styles.secondaryText}>다시</Text>
             </Pressable>
           )}
@@ -592,6 +602,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryText: { color: Palette.bg, fontSize: 16, fontWeight: '700' },
+  // shared press feedback for CTAs (subtle — same pattern as me.tsx stat cards)
+  pressedCta: { transform: [{ scale: 0.97 }], opacity: 0.9 },
   secondary: { paddingVertical: Space.sm, alignItems: 'center' },
   secondaryText: { color: Palette.muted, fontSize: 15 },
   cancelBtn: {
